@@ -1,0 +1,50 @@
+name: SBI Swing Pipeline v6
+
+on:
+  workflow_dispatch: # GitHubの画面から「Run workflow」ボタンで手動実行可能
+  push:
+    paths:
+      - 'screener_result.csv' # PCからCSVをコミット・プッシュした時に自動起動
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    # 生成された結果CSVをリポジトリに書き戻すための権限設定
+    permissions:
+      contents: write
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.10 をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: 依存ライブラリのインストール
+        run: |
+          python -m pip install --upgrade pip
+          # CPU版PyTorch（軽量・高速）をインストール
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: JPX需給データの最新化
+        run: |
+          if [ -f "daily_jpx_recorder.py" ]; then
+            python daily_jpx_recorder.py
+          fi
+
+      - name: v6 クロスアテンション推論の実行
+        run: |
+          python run_sbi_pipeline_v6.py --csv screener_result.csv
+
+      - name: 実行結果をリポジトリへ自動コミット & プッシュ
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add sbi_screened_v6_results.csv jpx_daily_features_db.csv
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto: screening results update [skip ci]"
+          git push
