@@ -148,7 +148,7 @@ def run_ai_validation(candidates: dict):
     if not candidates:
         return pd.DataFrame()
 
-    model_path = "swing_model_v6_crossattn_8725.pt"
+    model_path = "swing_model_v6_crossattn_universe.pt"
     if not os.path.exists(model_path):
         print(f"[!] v6モデルファイルが見つかりません: {model_path}")
         return pd.DataFrame()
