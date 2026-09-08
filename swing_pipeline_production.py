@@ -309,7 +309,7 @@ def predict_tomorrow_signal(df: pd.DataFrame, ticker: str, checkpoint_path: str)
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     CHECKPOINT_FILE = "swing_model_production.pt"
-    TARGET_TICKER = "8593.T"
+    TARGET_TICKER = "7974.T"
     
     real_market_df = fetch_100pct_real_market_data(ticker=TARGET_TICKER, period="2y")
     labeled_df = apply_dynamic_triple_barrier(real_market_df, max_holding_period=10)
