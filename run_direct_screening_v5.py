@@ -18,7 +18,11 @@ OUTPUT_CSV = os.path.join(BASE_DIR, "direct_screening_results_v5.csv")
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEQ_LEN = 10
-MIN_TURNOVER = 5e8      # 5日平均売買代金 5億円以上
+# 変更前 (5億円)
+# MIN_TURNOVER = 5e8
+
+# 変更後 (10億円)
+MIN_TURNOVER = 10e8
 
 # バックテスト最適化カットオフ基準
 THRESHOLD_BUY = 0.37    # 本命エントリーライン (PF: 2.42 / 勝率: 56.7%)
@@ -116,7 +120,7 @@ def main():
             if len(df) < SEQ_LEN + 20:
                 continue
 
-            # 売買代金チェック（5日平均 >= 5億円）
+            # 売買代金チェック（5日平均 >= 10億円）
             turnover_5d = (df['Close'] * df['Volume']).rolling(5).mean().iloc[-1]
             if turnover_5d < MIN_TURNOVER:
                 continue
