@@ -4,172 +4,163 @@ import datetime
 import urllib.request
 import numpy as np
 import pandas as pd
-from bs4 import BeautifulSoup
-import pdfplumber
+import openpyxl
 
 BASE_DIR = r"F:\stockModel"
 DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
+WEEKLY_DIR = os.path.join(BASE_DIR, "jpx_weekly_oi")
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-# --- 1. 空売り比率（当日分）の取得 ---
-def fetch_today_short_ratio(target_date):
-    yymmdd = target_date.strftime("%y%m%d")
-    fname = f"{yymmdd}-m.pdf"
-    pdf_save_path = os.path.join(BASE_DIR, "jpx_short_pdf", fname)
-    os.makedirs(os.path.dirname(pdf_save_path), exist_ok=True)
+# --- 1. 週次建玉Excelの自動探索 & ダウンロード ---
+def fetch_latest_weekly_oi(target_date, file_type):
+    os.makedirs(WEEKLY_DIR, exist_ok=True)
+    year = target_date.strftime("%Y")
 
-    top_url = "https://www.jpx.co.jp/markets/statistics-equities/short-selling/index.html"
-    try:
-        req = urllib.request.Request(top_url, headers=HEADERS)
-        with urllib.request.urlopen(req) as resp:
-            soup = BeautifulSoup(resp.read().decode('utf-8', errors='ignore'), 'html.parser')
-        
-        pdf_url = None
-        for a in soup.find_all('a', href=True):
-            if fname in a['href']:
-                href = a['href']
-                pdf_url = href if href.startswith("http") else "https://www.jpx.co.jp" + (href if href.startswith('/') else '/' + href)
-                break
-        
-        if not pdf_url:
-            print(f"  [-] 本日の空売りPDFが見つかりません（16:00以降に公開されます）")
-            return None
+    # 直近の金曜日から過去2週間分を探索
+    days_back = (target_date.weekday() - 4) % 7
+    # 月曜日の公表前（17時前）ならさらに1週前を参照
+    if target_date.weekday() == 0 and datetime.datetime.now().hour < 17:
+        days_back += 7
 
-        req_pdf = urllib.request.Request(pdf_url, headers=HEADERS)
-        with urllib.request.urlopen(req_pdf) as resp:
-            with open(pdf_save_path, "wb") as f:
-                f.write(resp.read())
-        print(f"  [+] 空売りPDF取得成功: {fname}")
+    for offset in range(days_back, days_back + 15, 7):
+        for day_shift in [0, 1, 2]: # 祝日考慮（金・木・水）
+            ref_d = target_date - datetime.timedelta(days=offset + day_shift)
+            ymd = ref_d.strftime("%Y%m%d")
+            fname = f"{ymd}_{file_type}_oi_by_tp.xlsx"
+            save_path = os.path.join(WEEKLY_DIR, fname)
 
-        with pdfplumber.open(pdf_save_path) as pdf:
-            text = "".join([p.extract_text() or "" for p in pdf.pages])
-            matches = re.findall(r'(\d{1,2}\.\d)\s*%', text)
-            if len(matches) >= 3:
-                # [実注文比率(a), 規制あり(b), 規制なし(c)]
-                b = float(matches[1])
-                c = float(matches[2])
-                return round(b + c, 2)
-    except Exception as e:
-        print(f"  [!] 空売り取得エラー: {e}")
-    return None
+            if os.path.exists(save_path) and os.path.getsize(save_path) > 1000:
+                return save_path
 
-# --- 2. 手口・壁（当日分）の取得 ---
-def parse_option_symbol(symbol_str):
-    s = str(symbol_str).strip()
-    if "225" not in s and "NK" not in s:
-        return None, None
-    m = re.search(r'([CPcp])\d{4}-(\d{4,6})', s)
-    if m:
-        cp = 'call' if m.group(1).upper() == 'C' else 'put'
-        strike = float(m.group(2))
-        if 20000.0 <= strike <= 85000.0:
-            return cp, strike
-    return None, None
-
-def parse_jpx_excel(filepath):
-    c_vol, p_vol = {}, {}
-    if not os.path.exists(filepath):
-        return c_vol, p_vol
-    try:
-        xls = pd.ExcelFile(filepath)
-        for sheet in xls.sheet_names:
-            df = pd.read_excel(xls, sheet_name=sheet)
-            if df.shape[1] < 8:
-                continue
-            for _, row in df.iterrows():
-                try:
-                    vol = float(str(row.iloc[7]).replace(',', ''))
-                    if vol <= 0:
-                        continue
-                except Exception:
-                    continue
-                cp, strike = parse_option_symbol(row.iloc[2])
-                if cp and strike:
-                    if cp == 'call':
-                        c_vol[strike] = c_vol.get(strike, 0.0) + vol
-                    else:
-                        p_vol[strike] = p_vol.get(strike, 0.0) + vol
-    except Exception as e:
-        print(f"  [!] Excel解析エラー ({os.path.basename(filepath)}): {e}")
-    return c_vol, p_vol
-
-def fetch_today_walls(target_date, last_valid):
-    ymd = target_date.strftime("%Y%m%d")
-    ym = target_date.strftime("%Y%m")
-    save_dir = os.path.join(BASE_DIR, "jpx_raw_year")
-    os.makedirs(save_dir, exist_ok=True)
-
-    p_auc = os.path.join(save_dir, f"{ymd}_volume_by_participant_whole_day.xlsx")
-    p_jnet = os.path.join(save_dir, f"{ymd}_volume_by_participant_whole_day_J-NET.xlsx")
-
-    # 【正規エンドポイント】automation/markets/derivatives/participant-volume/files/daily/YYYYMM/
-    base_url = f"https://www.jpx.co.jp/automation/markets/derivatives/participant-volume/files/daily/{ym}/"
-    
-    for p, suffix in [(p_auc, "whole_day.xlsx"), (p_jnet, "whole_day_J-NET.xlsx")]:
-        if not os.path.exists(p) or os.path.getsize(p) < 1000:
+            url = f"https://www.jpx.co.jp/automation/markets/derivatives/open-interest/files/{year}/{fname}"
             try:
-                url = f"{base_url}{ymd}_volume_by_participant_{suffix}"
                 req = urllib.request.Request(url, headers=HEADERS)
                 with urllib.request.urlopen(req) as resp:
-                    with open(p, "wb") as f:
+                    with open(save_path, "wb") as f:
                         f.write(resp.read())
-                print(f"  [+] ダウンロード成功: {os.path.basename(p)}")
+                print(f"  [+] 新規週次建玉ファイル取得成功 ({file_type}): {fname}")
+                return save_path
             except Exception:
-                print(f"  [-] ダウンロード未完了 ({suffix}): 17:15以降の公開をお待ちください")
+                continue
 
-    c_auc, p_auc_map = parse_jpx_excel(p_auc)
-    c_jnet, p_jnet_map = parse_jpx_excel(p_jnet)
+    return None
 
-    all_call = {s: c_auc.get(s, 0.0) + c_jnet.get(s, 0.0) for s in set(c_auc.keys()) | set(c_jnet.keys())}
-    all_put = {s: p_auc_map.get(s, 0.0) + p_jnet_map.get(s, 0.0) for s in set(p_auc_map.keys()) | set(p_jnet_map.keys())}
+# --- 2. オプション確定壁パーサー ---
+def parse_op_walls(filepath):
+    if not filepath or not os.path.exists(filepath): return None, None
+    try:
+        wb = openpyxl.load_workbook(filepath, data_only=True)
+        ws = wb.active
+        strike_oi = {'call': {}, 'put': {}}
+        p_strike, c_strike = None, None
 
-    call_wall = max(all_call, key=all_call.get) if all_call and max(all_call.values()) > 0 else last_valid['call_oi_wall']
-    put_wall = max(all_put, key=all_put.get) if all_put and max(all_put.values()) > 0 else last_valid['put_oi_wall']
-    gamma_flip = (call_wall + put_wall) / 2.0
+        for row in ws.iter_rows(values_only=True):
+            if len(row) > 1 and row[0] == 1 and row[1] is not None:
+                try: p_strike = float(row[1])
+                except Exception: p_strike = None
 
-    return float(call_wall), float(put_wall), float(gamma_flip)
+            if len(row) > 11 and row[10] == 1 and row[11] is not None:
+                try: c_strike = float(row[11])
+                except Exception: c_strike = None
 
-# --- 3. 統合実行関数 ---
+            if p_strike and (20000 <= p_strike <= 85000):
+                s = float(row[4]) if len(row) > 4 and isinstance(row[4], (int, float)) else 0.0
+                b = float(row[7]) if len(row) > 7 and isinstance(row[7], (int, float)) else 0.0
+                if (s + b) > 0: strike_oi['put'][p_strike] = strike_oi['put'].get(p_strike, 0.0) + s + b
+
+            if c_strike and (20000 <= c_strike <= 85000):
+                s = float(row[14]) if len(row) > 14 and isinstance(row[14], (int, float)) else 0.0
+                b = float(row[17]) if len(row) > 17 and isinstance(row[17], (int, float)) else 0.0
+                if (s + b) > 0: strike_oi['call'][c_strike] = strike_oi['call'].get(c_strike, 0.0) + s + b
+
+        c_wall = max(strike_oi['call'], key=strike_oi['call'].get) if strike_oi['call'] else None
+        p_wall = max(strike_oi['put'], key=strike_oi['put'].get) if strike_oi['put'] else None
+        return float(c_wall) if c_wall else None, float(p_wall) if p_wall else None
+    except Exception as e:
+        print(f"  [!] OP解析エラー: {e}")
+        return None, None
+
+# --- 3. CTA先物純建玉パーサー ---
+def parse_fut_cta(filepath):
+    if not filepath or not os.path.exists(filepath): return None
+    try:
+        wb = openpyxl.load_workbook(filepath, data_only=True)
+        ws = wb.active
+        cta_brokers = ['ＡＢＮクリアリン証券', 'バークレイズ証券', 'ソシエテＧ証券']
+        current_product = None
+        cta_net = 0.0
+
+        for row in ws.iter_rows(values_only=True):
+            col0 = str(row[0]).strip() if row[0] is not None else ""
+            if "＜日経225先物＞" in col0: current_product = 'large'; continue
+            elif "＜日経225mini＞" in col0: current_product = 'mini'; continue
+            elif "＜" in col0: current_product = 'other'; continue
+
+            if current_product in ['large', 'mini']:
+                scale = 1.0 if current_product == 'large' else 0.1
+                seller = str(row[3]).strip() if len(row) > 3 and row[3] else ""
+                buyer = str(row[6]).strip() if len(row) > 6 and row[6] else ""
+                s = float(row[4]) * scale if len(row) > 4 and isinstance(row[4], (int, float)) else 0.0
+                b = float(row[7]) * scale if len(row) > 7 and isinstance(row[7], (int, float)) else 0.0
+
+                if any(k in buyer for k in cta_brokers): cta_net += b
+                if any(k in seller for k in cta_brokers): cta_net -= s
+
+        return float(cta_net)
+    except Exception as e:
+        print(f"  [!] 先物解析エラー: {e}")
+        return None
+
+# --- 4. 日次同期メイン実行 ---
 def update_daily():
     today = datetime.date.today()
     today_str = today.strftime("%Y-%m-%d")
 
     print("=" * 65)
-    print(f"[*] 日次データベース更新バッチ実行: {today_str}")
+    print(f"[*] 日次マクロデータベース同期実行: {today_str}")
     print("=" * 65)
 
     if not os.path.exists(DB_PATH):
-        print(f"[!] DBが見つかりません: {DB_PATH}")
-        return
+        raise FileNotFoundError(f"[!] {DB_PATH} が見つかりません。")
 
     df_db = pd.read_csv(DB_PATH, index_col=0, parse_dates=True)
     last_valid = df_db.iloc[-1].to_dict()
 
-    # 空売り比率
-    short_ratio = fetch_today_short_ratio(today)
-    if short_ratio is None:
-        short_ratio = last_valid.get('short_selling_ratio', 40.0)
-        print(f"  [!] 空売り比率は前日値（{short_ratio}%）を引き継ぎます")
-    else:
-        print(f"  [+] 本日の空売り比率: {short_ratio}%")
+    # 土日の場合は直近営業日（金曜）をターゲットにするかスキップ
+    if today.weekday() >= 5:
+        print(f"  [-] 本日は休場日（土日）のため、DB追記をスキップします。")
+        return
 
-    # 手口・壁データ
-    c_wall, p_wall, g_flip = fetch_today_walls(today, last_valid)
-    print(f"  [+] 本日の壁・ガンマ: Call={c_wall:.0f} / Put={p_wall:.0f} / Flip={g_flip:.0f}")
+    # 最新の週次確定ファイルを探索・取得
+    p_op = fetch_latest_weekly_oi(today, "nk225op")
+    p_fut = fetch_latest_weekly_oi(today, "indexfut")
 
-    # DBに当日行を更新（既存日付なら上書き、新規なら追記）
+    c_wall, p_wall = parse_op_walls(p_op)
+    cta_net = parse_fut_cta(p_fut)
+
+    # 取得できない場合は前営業日値を完全引き継ぎ（ffill）
+    c_wall = c_wall or last_valid.get('call_oi_wall', 40000.0)
+    p_wall = p_wall or last_valid.get('put_oi_wall', 38000.0)
+    cta_net = cta_net if cta_net is not None else last_valid.get('cta_net_futures', 0.0)
+    g_flip = (c_wall + p_wall) / 2.0
+
+    print(f"  [+] 反映建玉水準: Call壁={c_wall:.0f} / Put壁={p_wall:.0f} / Flip={g_flip:.0f}")
+    print(f"  [+] 反映CTA先物 : {cta_net:+.1f} 枚 (ラージ換算)")
+
+    # DBのカラム（call_oi_wall, put_oi_wall, gamma_flip, cta_net_futures）と完全整合
     df_db.loc[pd.to_datetime(today_str)] = {
-        'call_oi_wall': c_wall,
-        'put_oi_wall': p_wall,
-        'gamma_flip': g_flip,
-        'short_selling_ratio': short_ratio
+        'call_oi_wall': float(c_wall),
+        'put_oi_wall': float(p_wall),
+        'gamma_flip': float(g_flip),
+        'cta_net_futures': float(cta_net)
     }
 
     df_db.sort_index(inplace=True)
     df_db.to_csv(DB_PATH)
-    print(f"\n[★] {DB_PATH} の更新が完了しました。（総日数: {len(df_db)} 日）")
+    print(f"\n[★] {DB_PATH} の更新完了（総日数: {len(df_db)} 営業日）")
+    print(df_db.tail(3))
 
 if __name__ == "__main__":
     update_daily()

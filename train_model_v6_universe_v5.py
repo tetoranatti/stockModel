@@ -1,4 +1,5 @@
 import os
+import random
 import datetime
 import calendar
 import numpy as np
@@ -8,7 +9,28 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-# --- 軽量・直近重視プーリング（固定指数重み付け） ---
+# =============================================================================
+# 設定・パス・乱数シード固定（再現性の担保）
+# =============================================================================
+BASE_DIR = r"F:\stockModel"
+DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
+UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
+MODEL_SAVE_PATH = os.path.join(BASE_DIR, "swing_model_v6_crossattn_universe_v5.pt")
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+set_seed(42)
+
+# =============================================================================
+# 1. 改修版v6 モデルアーキテクチャ (軽量Cross-Attention 24次元)
+# =============================================================================
 class DecayPooling(nn.Module):
     def __init__(self, seq_len=10):
         super(DecayPooling, self).__init__()
@@ -53,7 +75,7 @@ class DualStreamGRU_v6_Slim5(nn.Module):
         return self.classifier(pooled)
 
 class AsymmetricPenaltyLoss(nn.Module):
-    def __init__(self, false_buy_penalty: float = 1.5, class_weights=None):
+    def __init__(self, false_buy_penalty: float = 1.3, class_weights=None):
         super(AsymmetricPenaltyLoss, self).__init__()
         self.penalty = false_buy_penalty
         self.ce = nn.CrossEntropyLoss(weight=class_weights, reduction='none')
@@ -62,7 +84,7 @@ class AsymmetricPenaltyLoss(nn.Module):
         base_loss = self.ce(logits, targets)
         probs = torch.softmax(logits, dim=-1)
         is_actual_loss = (targets == 0)
-        p_profit = probs[:, 2]
+        p_profit = probs[:, 2]  # 買い（2）と誤認した確率
         multiplier = torch.ones_like(base_loss)
         multiplier[is_actual_loss] += (self.penalty - 1.0) * p_profit[is_actual_loss]
         return (base_loss * multiplier).mean()
@@ -79,67 +101,67 @@ class UniverseDataset(Dataset):
     def __getitem__(self, idx):
         return self.X_stock[idx], self.X_macro[idx], self.y[idx]
 
-def load_macro_slim5(db_path="jpx_daily_features_db.csv"):
-    print("[*] マクロ・需給 極限スリム指標 (5次元) を構築中...")
-    
+# =============================================================================
+# 2. マクロ環境データ構築
+# =============================================================================
+def load_macro_slim5(db_path=DB_PATH):
+    print("[*] マクロ・需給特徴量（確定建玉＋CTA先物 5次元）を構築中...")
     if not os.path.exists(db_path):
-        raise FileNotFoundError(f"[!] {db_path} が見つかりません。DB生成スクリプトを先に実行してください。")
+        raise FileNotFoundError(f"[!] {db_path} が見つかりません。")
 
-    # 1. 1年分の手口・壁実データDBを読み込み
     jpx_db = pd.read_csv(db_path, index_col=0, parse_dates=True)
     jpx_db.index = pd.to_datetime(jpx_db.index).tz_localize(None)
-    start_date = (jpx_db.index.min() - datetime.timedelta(days=15)).strftime("%Y-%m-%d")
+    start_date = (jpx_db.index.min() - datetime.timedelta(days=20)).strftime("%Y-%m-%d")
 
-    # 2. 日経平均と為替を取得
     n225 = yf.download("^N225", start=start_date, interval="1d", progress=False)
-    if isinstance(n225.columns, pd.MultiIndex): n225.columns = n225.columns.get_level_values(0)
+    if isinstance(n225.columns, pd.MultiIndex):
+        n225.columns = n225.columns.get_level_values(0)
     n225.index = pd.to_datetime(n225.index).tz_localize(None)
-
-    fx = yf.download("USDJPY=X", start=start_date, interval="1d", progress=False)
-    if isinstance(fx.columns, pd.MultiIndex): fx.columns = fx.columns.get_level_values(0)
-    fx.index = pd.to_datetime(fx.index).tz_localize(None)
 
     macro_df = pd.DataFrame(index=n225.index)
     macro_df['NK_Close'] = n225['Close']
     macro_df['NK_Ret'] = n225['Close'].pct_change(fill_method=None).fillna(0.0)
-    macro_df['FX_Ret'] = fx['Close'].pct_change(fill_method=None).reindex(macro_df.index).fillna(0.0)
 
-    # 3. 実データDBと結合（JPX実データが存在する期間のみを厳格に同期）
-    macro_df = macro_df.join(jpx_db, how='inner')
-    macro_df = macro_df.ffill().bfill()
+    # 過去リークを防ぐため、前方補間のみで欠損を処理
+    macro_df = macro_df.join(jpx_db, how='inner').ffill().fillna(0.0)
 
-    # 4. 厳選 5次元指標の算出
-    macro_df['gamma_log_dist'] = np.log((macro_df['NK_Close'] + 1e-7) / (macro_df['gamma_flip'] + 1e-7)).fillna(0.0)
-    denom = (macro_df['call_oi_wall'] - macro_df['put_oi_wall']).abs() + 1e-7
-    macro_df['wall_dist_ratio'] = ((macro_df['NK_Close'] - macro_df['put_oi_wall']) / denom).clip(0.0, 1.0)
-    macro_df['short_selling_norm'] = (macro_df['short_selling_ratio'] - 45.0) / 5.0
+    pin_strike = (macro_df['call_oi_wall'] + macro_df['put_oi_wall']) / 2.0
+    macro_df['pin_dist_ratio'] = ((macro_df['NK_Close'] - pin_strike) / (pin_strike + 1e-5)) / 0.02
+    macro_df['wall_spread'] = ((macro_df['call_oi_wall'] - macro_df['put_oi_wall']).abs() / (pin_strike + 1e-5)) / 0.02
 
-    slim_cols = [
-        'gamma_log_dist',     # 1. ガンマフリップからの乖離
-        'wall_dist_ratio',    # 2. 上下壁の中での相対位置
-        'short_selling_norm', # 3. 空売り比率の標準化乖離
-        'NK_Ret',             # 4. 日経平均騰落率
-        'FX_Ret'              # 5. ドル円騰落率
-    ]
-    return macro_df[slim_cols]
+    cta_mean = macro_df['cta_net_futures'].rolling(60, min_periods=10).mean()
+    cta_std = macro_df['cta_net_futures'].rolling(60, min_periods=10).std() + 1e-5
+    macro_df['cta_net_norm'] = ((macro_df['cta_net_futures'] - cta_mean) / cta_std).fillna(0.0)
 
+    macro_df['cta_momentum'] = (macro_df['cta_net_futures'] - macro_df['cta_net_futures'].shift(5)).fillna(0.0) / 5000.0
+    macro_df['nk_ret_norm'] = macro_df['NK_Ret'] / 0.015
+
+    return macro_df
+
+# =============================================================================
+# 3. データセット構築（生リターン基準ベータ ＆ 10日保有ターゲット）
+# =============================================================================
 def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10):
     stock_cols = ['stock_ret_1d', 'stock_ret_5d', 'atr_ratio', 'rolling_beta', 'vol_ratio_5d']
-    macro_cols = list(macro_df.columns)
+    macro_cols = ['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentum', 'nk_ret_norm']
 
     tr_x_s, tr_x_m, tr_y = [], [], []
     va_x_s, va_x_m, va_y = [], [], []
 
-    print(f"[*] 全 {len(tickers)} 銘柄から極限スリム版データ（5 Stock + 5 Macro）を構築中...")
+    print(f"[*] 全 {len(tickers)} 銘柄からデータセット構築中...")
     m_start = (macro_df.index.min() - datetime.timedelta(days=40)).strftime("%Y-%m-%d")
 
     for i, t in enumerate(tickers):
         try:
             df = yf.download(t, start=m_start, interval="1d", progress=False)
-            if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
             df.index = pd.to_datetime(df.index).tz_localize(None)
             df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
-            if len(df) < seq_len + holding_period + 20: continue
+
+            # 欠損・売買停止・データ不足ガード
+            if len(df) < seq_len + holding_period + 25 or (df['Volume'] == 0).all():
+                continue
 
             df['stock_ret_1d'] = df['Close'].pct_change(1, fill_method=None).fillna(0.0)
             df['stock_ret_5d'] = df['Close'].pct_change(5, fill_method=None).fillna(0.0)
@@ -154,14 +176,16 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
             df['ATR'] = atr
             df['atr_ratio'] = (atr / (df['Close'] + 1e-7)).fillna(0.0)
 
+            # 生リターン基準のベータ
             aligned_nk = macro_df['NK_Ret'].reindex(df.index).fillna(0.0)
             cov = df['stock_ret_1d'].rolling(20).cov(aligned_nk)
             var = aligned_nk.rolling(20).var()
             df['rolling_beta'] = (cov / (var + 1e-7)).fillna(1.0)
 
-            df = df.join(macro_df, how='inner')
+            df = df.join(macro_df[macro_cols], how='inner')
             df = df.dropna(subset=['ATR', 'rolling_beta'] + macro_cols)
-            if len(df) < seq_len + holding_period + 5: continue
+            if len(df) < seq_len + holding_period + 10:
+                continue
 
             closes = df['Close'].values
             highs = df['High'].values
@@ -194,37 +218,41 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
             vals_m = df[macro_cols].values
             vals_y = df['Target'].values.astype(int)
 
-            split_idx = int(len(df) * 0.75)
+            n_samples = len(df)
+            split_idx = int(n_samples * 0.75)
 
-            for idx in range(seq_len, len(df)):
-                w_s = vals_s[idx-seq_len:idx]
-                w_m = vals_m[idx-seq_len:idx]
+            for idx in range(seq_len - 1, n_samples):
+                w_s = vals_s[idx - seq_len + 1 : idx + 1].copy()
+                w_m = vals_m[idx - seq_len + 1 : idx + 1].copy()
+
                 w_s = (w_s - w_s.mean(axis=0)) / (w_s.std(axis=0) + 1e-7)
-                w_m = (w_m - w_m.mean(axis=0)) / (w_m.std(axis=0) + 1e-7)
+                target = vals_y[idx]
 
                 if idx < split_idx:
                     tr_x_s.append(w_s)
                     tr_x_m.append(w_m)
-                    tr_y.append(vals_y[idx])
+                    tr_y.append(target)
                 else:
                     va_x_s.append(w_s)
                     va_x_m.append(w_m)
-                    va_y.append(vals_y[idx])
+                    va_y.append(target)
 
         except Exception:
             continue
 
-        if (i + 1) % 20 == 0 or (i + 1) == len(tickers):
+        if (i + 1) % 50 == 0 or (i + 1) == len(tickers):
             print(f"  --> {i + 1}/{len(tickers)} 銘柄 完了")
 
     tr_x_s, tr_x_m, tr_y = np.array(tr_x_s), np.array(tr_x_m), np.array(tr_y)
     va_x_s, va_x_m, va_y = np.array(va_x_s), np.array(va_x_m), np.array(va_y)
     return (tr_x_s, tr_x_m, tr_y), (va_x_s, va_x_m, va_y), stock_cols, macro_cols
 
+# =============================================================================
+# 4. 学習ループ (改修版v6 黄金比安定構成)
+# =============================================================================
 def train_universe_model_v5():
-    universe_path = "universe_150_tickers.txt"
-    if os.path.exists(universe_path):
-        with open(universe_path, "r", encoding="utf-8") as f:
+    if os.path.exists(UNIVERSE_PATH):
+        with open(UNIVERSE_PATH, "r", encoding="utf-8") as f:
             tickers = [line.strip() for line in f if line.strip()]
     else:
         tickers = ["7203.T", "6758.T", "8035.T", "8306.T", "9432.T", "7167.T", "4519.T", "5726.T"]
@@ -232,7 +260,7 @@ def train_universe_model_v5():
     macro_df = load_macro_slim5()
     print(f"[+] マクロ実データ整合期間: {macro_df.index.min().date()} 〜 {macro_df.index.max().date()} ({len(macro_df)} 営業日)")
 
-    train_data, val_data, s_cols, m_cols = build_universe_dataset_slim(tickers, macro_df)
+    train_data, val_data, s_cols, m_cols = build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10)
 
     tr_x_s, tr_x_m, tr_y = train_data
     va_x_s, va_x_m, va_y = val_data
@@ -249,34 +277,25 @@ def train_universe_model_v5():
     weights = len(tr_y) / (len(class_counts) * class_counts + 1e-5)
     class_weights = torch.tensor(weights, dtype=torch.float32)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = DualStreamGRU_v6_Slim5(
         stock_dim=len(s_cols), macro_dim=len(m_cols), hidden_dim=24, num_heads=2, num_classes=3
-    ).to(device)
+    ).to(DEVICE)
 
-    # 変更前 (1.5倍)
-    # penalty_weight = torch.tensor([1.5, 1.0, 1.0]).to(device)
-
-    # 変更後 (1.2倍: 自然な感度へ緩和)
-    penalty_weight = torch.tensor([1.2, 1.0, 1.0]).to(device)
-    criterion = nn.CrossEntropyLoss(weight=penalty_weight)
-
-    # 2. 学習率を 0.00015、Weight Decayを 1e-2 へ調整
+    criterion = AsymmetricPenaltyLoss(false_buy_penalty=1.3, class_weights=class_weights.to(DEVICE))
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.00015, weight_decay=1e-2)
 
     best_val_loss = float('inf')
-    patience = 5
+    patience = 6
     patience_cnt = 0
-    save_path = "swing_model_v6_crossattn_universe_v5.pt"
 
-    print("\n[*] [v5 極限スリム版] 正則化強化・ペナルティ緩和学習開始 (Hidden=24, lr=0.00015, penalty=1.5)...")
-    epochs = 20
+    print("\n[*] [改修版v6 決定版] 確定建玉＋CTA先物・非対称損失関数による学習開始 (lr=0.00015)...")
+    epochs = 25
 
     for epoch in range(1, epochs + 1):
         model.train()
         total_tr_loss = 0.0
         for b_xs, b_xm, b_y in train_loader:
-            b_xs, b_xm, b_y = b_xs.to(device), b_xm.to(device), b_y.to(device)
+            b_xs, b_xm, b_y = b_xs.to(DEVICE), b_xm.to(DEVICE), b_y.to(DEVICE)
             optimizer.zero_grad()
             out = model(b_xs, b_xm)
             loss = criterion(out, b_y)
@@ -291,7 +310,7 @@ def train_universe_model_v5():
         total_va_loss = 0.0
         with torch.no_grad():
             for b_xs, b_xm, b_y in val_loader:
-                b_xs, b_xm, b_y = b_xs.to(device), b_xm.to(device), b_y.to(device)
+                b_xs, b_xm, b_y = b_xs.to(DEVICE), b_xm.to(DEVICE), b_y.to(DEVICE)
                 out = model(b_xs, b_xm)
                 loss = criterion(out, b_y)
                 total_va_loss += loss.item() * len(b_y)
@@ -307,7 +326,7 @@ def train_universe_model_v5():
                 'macro_cols': m_cols,
                 'hidden_dim': 24,
                 'val_loss': best_val_loss
-            }, save_path)
+            }, MODEL_SAVE_PATH)
             print(f"  Epoch [{epoch:02d}/{epochs:02d}] - Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}  --> [Best Val Loss 更新 ★]")
         else:
             patience_cnt += 1
@@ -316,7 +335,7 @@ def train_universe_model_v5():
                 print(f"[*] Early Stopping 発動: Epoch {epoch} で学習を終了します。")
                 break
 
-    print(f"\n[+] 最適モデル重みを保存しました: {save_path}")
+    print(f"\n[+] 最適モデル重みを保存しました: {MODEL_SAVE_PATH}")
 
 if __name__ == "__main__":
     train_universe_model_v5()
