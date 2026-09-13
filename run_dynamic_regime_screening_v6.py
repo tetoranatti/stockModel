@@ -1,3 +1,4 @@
+import re
 import os
 import shutil
 import glob
@@ -179,7 +180,13 @@ def main():
         raw_df = pd.read_csv(SCREENER_CSV, encoding='utf-8')
 
     code_col = [c for c in raw_df.columns if "コード" in str(c)][0]
-    tickers = [f"{str(c).strip()}.T" for c in raw_df[code_col] if str(c).strip().isdigit()]
+
+    # 修正後（4桁数字、または数字3桁+英字1文字に対応）:
+    tickers = [
+        f"{str(c).strip()}.T" 
+        for c in raw_df[code_col] 
+        if re.match(r"^[0-9]{4}$|^[0-9]{3}[A-Z]$", str(c).strip().upper())
+    ]
 
     print(f"[*] スキャン対象母集団: {len(tickers)} 銘柄 (売買代金10億円以上フィルター適用)")
 
