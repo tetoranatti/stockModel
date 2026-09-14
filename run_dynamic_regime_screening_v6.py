@@ -2,11 +2,11 @@
 import os
 import random
 import datetime
+import json
 import numpy as np
 import pandas as pd
 import torch
 
-# 各種モジュールの読み込み
 from modules.data_loader import (
     load_screener_tickers,
     fetch_all_tickers_data,
@@ -27,13 +27,12 @@ from modules.risk_manager import (
     calculate_target_stop_levels
 )
 
-# パス設定
 BASE_DIR = r"F:\stockModel"
 MODEL_WEIGHTS = os.path.join(BASE_DIR, "swing_model_v6_crossattn_universe_v5.pt")
 OUTPUT_CSV = os.path.join(BASE_DIR, "final_regime_screened_v6.csv")
 OUTPUT_JSON = os.path.join(BASE_DIR, "data", "screening_results.json")
 
-MIN_TURNOVER = 10e8  # 5日平均売買代金10億円以上
+MIN_TURNOVER = 10e8
 SEQ_LEN = 10
 
 def set_seed(seed=42):
@@ -46,30 +45,26 @@ def set_seed(seed=42):
 def main():
     set_seed(42)
     print("=" * 95)
-    print("【v6スイングモデル 高速一括スクリーニング (完全モジュール化版)】")
+    print("【v6スイングモデル 高速一括スクリーニング (大口手口フロー統合版)】")
     print("=" * 95)
 
     if not os.path.exists(MODEL_WEIGHTS):
         print(f"[!] モデル重みが見つかりません: {MODEL_WEIGHTS}")
         return
 
-    # 1. モデルロード
     model, stock_cols, macro_cols = load_trained_model(MODEL_WEIGHTS)
-
-    # 2. マクロ環境・レジーム判定
     macro_df = load_macro_environment()
     regime = detect_macro_regime(macro_df)
 
-    # 3. 需給・セクターマスターロード
     margin_cache = load_margin_cache()
     sentiment_map, master_map = load_sector_data()
 
     print(f"[*] 信用需給キャッシュ: {len(margin_cache)} 銘柄ロード済み")
     print(f"[*] セクターセンチメント: {len(sentiment_map)} セクター | 銘柄マスター: {len(master_map)} 件")
     print(f"\n[★] マクロ環境: {'【BEAR レジーム】' if regime['is_bear'] else '【BULL/NEUTRAL レジーム】'}")
-    print(f"   - ピン留め乖離: {regime['pin_dist']*2.0:+.2f}% | CTA純建玉: {regime['cta_raw']:+.1f} 枚 (Z: {regime['cta_norm']:+.2f})\n")
+    print(f"   - ピン留め乖離: {regime['pin_dist']*2.0:+.2f}% | CTA純建玉: {regime['cta_raw']:+.1f} 枚 (Z: {regime['cta_norm']:+.2f})")
+    print(f"   - 大口手口フロー: {regime['flow_desc']} (CTAシェア: {regime['cta_share']*100:.1f}%, J-NET: {regime['jnet_ratio']*100:.1f}%)\n")
 
-    # 4. 対象銘柄の特定 & 株価一括取得
     tickers = load_screener_tickers()
     if not tickers:
         print("[-] スキャン対象銘柄が存在しません。")
@@ -129,7 +124,6 @@ def main():
             w_s = df[stock_cols].values[-SEQ_LEN:].copy()
             w_m = df[macro_cols].values[-SEQ_LEN:].copy()
 
-            # GPU 推論
             p_win_raw, p_stop_raw, ev_raw = predict_probabilities(model, w_s, w_m)
 
             curr_close = float(df['Close'].iloc[-1])
@@ -140,12 +134,12 @@ def main():
             ret_1d = float(df['stock_ret_1d'].iloc[-1])
             is_bear_candle = curr_close < curr_open
 
-            # 1. 需給補正
+            # 需給補正
             m_item = margin_cache.get(t)
             sd_weight, days_to_clear = compute_supply_demand_factor(m_item, curr_close, turnover_5d)
             p_win_adj, p_stop_adj = apply_odds_adjustment(p_win_raw, p_stop_raw, sd_weight)
 
-            # 2. セクターセンチメント補正
+            # セクター補正
             sec_info = get_ticker_sector_sentiment(t, sentiment_map, master_map)
             sec_name = sec_info.get("name", "") if sec_info else ""
             sec_score = float(sec_info.get("score", 0.0)) if sec_info else 0.0
@@ -159,13 +153,14 @@ def main():
 
             ev_adj = round(2.0 * p_win_adj - 1.0 * p_stop_adj, 3)
 
-            # 3. ロット調整係数
+            # ロット調整係数（フローシグナル反映）
             margin_ratio_val = float(m_item.get("margin_ratio", 1.0) if m_item else 1.0)
             size_factor, size_reason = determine_sizing_factor(
-                ret_1d, is_bear_candle, days_to_clear, margin_ratio_val, sec_advice
+                ret_1d, is_bear_candle, days_to_clear, margin_ratio_val, sec_advice,
+                flow_level=regime['flow_level']
             )
 
-            # 4. ゲート採否判定
+            # ゲート採否判定（フローシグナル反映）
             action, gate_reason = evaluate_screening_gate(
                 p_win=p_win_adj,
                 p_stop=p_stop_adj,
@@ -179,10 +174,10 @@ def main():
                 watch_threshold=regime['watch_threshold'],
                 sec_shock=sec_shock,
                 sec_advice=sec_advice,
-                sec_summary=sec_summary
+                sec_summary=sec_summary,
+                flow_level=regime['flow_level']
             )
 
-            # 目標値・損切値
             target_price, stop_price = calculate_target_stop_levels(curr_close, curr_atr, action)
 
             candidates.append({
@@ -209,7 +204,8 @@ def main():
                 'sector_score': sec_score,
                 'sector_shock': sec_shock,
                 'sector_advice': sec_advice,
-                'sector_summary': sec_summary
+                'sector_summary': sec_summary,
+                'macro_flow': regime['flow_level']
             })
         except Exception:
             continue
@@ -232,22 +228,23 @@ def main():
     res_df['priority'] = res_df['action'].map(priority_map)
     res_df = res_df.sort_values(by=['priority', 'ev_score'], ascending=[True, False]).drop(columns=['priority'])
 
-    # CSV 出力
     res_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8-sig')
 
-    # UI用 JSON 出力
     try:
         json_payload = {
             "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "macro_regime": {
                 "is_bear": regime['is_bear'],
                 "pin_dist": regime['pin_dist'],
-                "cta_raw": regime['cta_raw']
+                "cta_raw": regime['cta_raw'],
+                "flow_level": regime['flow_level'],
+                "cta_share": regime['cta_share'],
+                "jnet_ratio": regime['jnet_ratio'],
+                "flow_desc": regime['flow_desc']
             },
             "results": res_df.to_dict(orient="records")
         }
         with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
-            import json
             json.dump(json_payload, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[!] JSON保存スキップ: {e}")

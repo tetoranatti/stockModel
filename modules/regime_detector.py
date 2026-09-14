@@ -1,11 +1,13 @@
 # modules/regime_detector.py
 import os
+import json
 import datetime
 import pandas as pd
 import yfinance as yf
 
 BASE_DIR = r"F:\stockModel"
 JPX_DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
+FLOW_JSON_PATH = os.path.join(BASE_DIR, "macro_flow_signal.json")
 
 def load_macro_environment():
     if not os.path.exists(JPX_DB_PATH):
@@ -48,6 +50,22 @@ def detect_macro_regime(macro_df):
 
     is_bear_regime = (pin_dist < -1.0) or (cta_norm < -0.8 and cta_mom < 0.0)
 
+    flow_level = "NORMAL"
+    cta_share = 0.0
+    jnet_ratio = 0.0
+    flow_desc = "手口平常"
+
+    if os.path.exists(FLOW_JSON_PATH):
+        try:
+            with open(FLOW_JSON_PATH, "r", encoding="utf-8") as f:
+                flow_data = json.load(f)
+                flow_level = flow_data.get("level", "NORMAL")
+                cta_share = float(flow_data.get("cta_share", 0.0))
+                jnet_ratio = float(flow_data.get("jnet_ratio", 0.0))
+                flow_desc = flow_data.get("signal_desc", "手口平常")
+        except Exception:
+            pass
+
     strong_buy_th = 0.365 if is_bear_regime else 0.360
     buy_threshold = 0.355 if is_bear_regime else 0.350
     watch_threshold = 0.345 if is_bear_regime else 0.340
@@ -58,6 +76,10 @@ def detect_macro_regime(macro_df):
         "cta_norm": cta_norm,
         "cta_mom": cta_mom,
         "cta_raw": cta_raw,
+        "flow_level": flow_level,
+        "cta_share": cta_share,
+        "jnet_ratio": jnet_ratio,
+        "flow_desc": flow_desc,
         "strong_buy_th": strong_buy_th,
         "buy_threshold": buy_threshold,
         "watch_threshold": watch_threshold

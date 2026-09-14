@@ -1,6 +1,6 @@
 # modules/risk_manager.py
 
-def determine_sizing_factor(ret_1d, is_bear_candle, days_to_clear, margin_ratio, sec_advice):
+def determine_sizing_factor(ret_1d, is_bear_candle, days_to_clear, margin_ratio, sec_advice, flow_level="NORMAL"):
     size_factor = 1.0
     size_reason = "通常ロット"
 
@@ -16,17 +16,24 @@ def determine_sizing_factor(ret_1d, is_bear_candle, days_to_clear, margin_ratio,
         size_factor = round(size_factor * 0.7, 2)
         size_reason += " ＋ セクター軟調(30%抑制)"
 
+    # 大口手口フローに応じたロット調整
+    if flow_level == "QUIET":
+        size_factor = round(size_factor * 0.8, 2)
+        size_reason += " ＋ 大口薄商い警戒(20%抑制)"
+    elif flow_level == "CTA_SURGE" and (ret_1d < 0 or is_bear_candle):
+        size_factor = round(size_factor * 0.7, 2)
+        size_reason += " ＋ CTA急変警戒(30%抑制)"
+
     return size_factor, size_reason
 
 def evaluate_screening_gate(p_win, p_stop, ev_adj, beta, vol_ratio, days_to_clear,
                             is_bear_regime, strong_buy_th, buy_threshold, watch_threshold,
-                            sec_shock, sec_advice, sec_summary):
+                            sec_shock, sec_advice, sec_summary, flow_level="NORMAL"):
     action = "⏸️ WAIT"
     gate_reason = "見送り"
 
     is_hedge_candidate = is_bear_regime and (beta >= 1.15) and (p_stop >= 0.500) and (p_stop - p_win >= 0.15)
 
-    # 「見送り」のみを即時遮断（打診30%抑制はゲートを通す）
     if sec_shock or sec_advice == "見送り":
         action = "⏸️ WAIT"
         gate_reason = f"🛑 セクターショック警戒回避 [{sec_summary}]"
@@ -34,8 +41,12 @@ def evaluate_screening_gate(p_win, p_stop, ev_adj, beta, vol_ratio, days_to_clea
         action = "⚠️ SHORT / HEDGE"
         gate_reason = f"地合い連動下落ヘッジ(β={beta:.2f}, 損率={p_stop*100:.1f}%)"
     elif p_win >= strong_buy_th and p_win > p_stop:
-        action = "🔥 STRONG BUY"
-        gate_reason = f"本買い適合(補正勝率{p_win*100:.1f}%, EV={ev_adj:+.2f}R)"
+        if flow_level == "QUIET" and beta >= 1.2:
+            action = "🎯 BUY"
+            gate_reason = f"大口薄商いによる高β抑制(元本買い, β={beta:.2f})"
+        else:
+            action = "🔥 STRONG BUY"
+            gate_reason = f"本買い適合(補正勝率{p_win*100:.1f}%, EV={ev_adj:+.2f}R)"
     elif p_win >= buy_threshold and p_win > p_stop and vol_ratio >= 0.85:
         if is_bear_regime and beta >= 1.0:
             action = "⏸️ WAIT"
