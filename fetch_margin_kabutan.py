@@ -124,7 +124,7 @@ def update_screened_with_margin(max_workers=5):
     """
     キャッシュを併用しつつ並列処理で需給データをマージ
     """
-    csv_path = os.path.join(BASE_DIR, "final_regime_screened_v6.csv")
+    csv_path = os.path.join(BASE_DIR, "final_regime_screened_v8.csv")
     if not os.path.exists(csv_path):
         print(f"CSVが見つかりません: {csv_path}")
         return

@@ -22,11 +22,17 @@ def load_macro_environment():
         n225.columns = n225.columns.get_level_values(0)
     n225.index = pd.to_datetime(n225.index).tz_localize(None)
 
-    macro_df = pd.DataFrame(index=n225.index)
-    macro_df['NK_Close'] = n225['Close']
-    macro_df['NK_Ret'] = n225['Close'].pct_change(fill_method=None).fillna(0.0)
+    # 日経平均ではなく jpx_db のインデックスを主軸にする
+    macro_df = pd.DataFrame(index=jpx_db.index)
+    
+    # n225 から Close を取得して左結合（未確定日は直近終値で ffill）
+    macro_df = macro_df.join(n225[['Close']], how='left')
+    macro_df.rename(columns={'Close': 'NK_Close'}, inplace=True)
+    macro_df['NK_Close'] = macro_df['NK_Close'].ffill()
+    macro_df['NK_Ret'] = macro_df['NK_Close'].pct_change(fill_method=None).fillna(0.0)
 
-    macro_df = macro_df.join(jpx_db, how='inner').ffill().fillna(0.0)
+    # jpx_db の全特徴量を左結合
+    macro_df = macro_df.join(jpx_db, how='left').ffill().fillna(0.0)
 
     pin_strike = (macro_df['call_oi_wall'] + macro_df['put_oi_wall']) / 2.0
     macro_df['pin_dist_ratio'] = ((macro_df['NK_Close'] - pin_strike) / (pin_strike + 1e-5)) / 0.02
@@ -66,9 +72,10 @@ def detect_macro_regime(macro_df):
         except Exception:
             pass
 
-    strong_buy_th = 0.365 if is_bear_regime else 0.360
-    buy_threshold = 0.355 if is_bear_regime else 0.350
-    watch_threshold = 0.345 if is_bear_regime else 0.340
+    # v8 (勝率62%, PF 3.33) の分布に合わせた閾値設定
+    strong_buy_th = 0.365 if is_bear_regime else 0.360   # ★ 特選ライン (PF 3.33)
+    buy_threshold = 0.360 if is_bear_regime else 0.355   # 標準採用ライン (PF 2.35)
+    watch_threshold = 0.350 if is_bear_regime else 0.345 # 監視ライン
 
     return {
         "is_bear": is_bear_regime,

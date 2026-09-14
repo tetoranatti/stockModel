@@ -61,6 +61,7 @@ def fetch_all_tickers_data(tickers, m_start):
         tickers=tickers,
         start=m_start,
         interval="1d",
+        auto_adjust=True,   # ★ 株式分割・併合・配当落ちを過去全期間に遡って自動補正
         group_by="ticker",
         threads=True,
         progress=True

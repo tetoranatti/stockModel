@@ -1,7 +1,6 @@
 import os
 import random
 import datetime
-import calendar
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -10,12 +9,12 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 # =============================================================================
-# 設定・パス・乱数シード固定（再現性の担保）
+# 設定・パス・乱数シード固定
 # =============================================================================
 BASE_DIR = r"F:\stockModel"
 DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
 UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
-MODEL_SAVE_PATH = os.path.join(BASE_DIR, "swing_model_v6_crossattn_universe_v5.pt")
+MODEL_SAVE_PATH = os.path.join(BASE_DIR, "swing_model_v8_timeout_refined.pt")
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -29,11 +28,11 @@ def set_seed(seed=42):
 set_seed(42)
 
 # =============================================================================
-# 1. 改修版v6 モデルアーキテクチャ (軽量Cross-Attention 24次元)
+# 1. モデルアーキテクチャ (実績最強の Pre-LN Transformer + Cross-Attention)
 # =============================================================================
 class DecayPooling(nn.Module):
     def __init__(self, seq_len=10):
-        super(DecayPooling, self).__init__()
+        super().__init__()
         weights = np.exp(np.linspace(-1.5, 0.0, seq_len))
         weights = weights / weights.sum()
         self.register_buffer("weights", torch.tensor(weights, dtype=torch.float32).unsqueeze(0).unsqueeze(-1))
@@ -41,42 +40,79 @@ class DecayPooling(nn.Module):
     def forward(self, x):
         return torch.sum(x * self.weights, dim=1)
 
-class CrossAttentionBlock(nn.Module):
-    def __init__(self, hidden_dim=24, num_heads=2, dropout=0.3):
-        super(CrossAttentionBlock, self).__init__()
+class PreLN_SelfAttentionBlock(nn.Module):
+    def __init__(self, hidden_dim=20, num_heads=1, dim_ff=32, dropout=0.2):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
+        self.drop1 = nn.Dropout(dropout)
+
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, dim_ff),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_ff, hidden_dim)
+        )
+        self.drop2 = nn.Dropout(dropout)
+
+    def forward(self, x):
+        norm_x = self.norm1(x)
+        attn_out, _ = self.attn(norm_x, norm_x, norm_x)
+        x = x + self.drop1(attn_out)
+
+        norm_x2 = self.norm2(x)
+        ffn_out = self.ffn(norm_x2)
+        x = x + self.drop2(ffn_out)
+        return x
+
+class PreLN_CrossAttentionBlock(nn.Module):
+    def __init__(self, hidden_dim=20, num_heads=1, dropout=0.2):
+        super().__init__()
+        self.norm_q = nn.LayerNorm(hidden_dim)
+        self.norm_kv = nn.LayerNorm(hidden_dim)
         self.mha = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
-        self.norm = nn.LayerNorm(hidden_dim)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, query, key_value):
-        attn_out, _ = self.mha(query=query, key=key_value, value=key_value)
-        return self.norm(query + self.dropout(attn_out))
+        q_norm = self.norm_q(query)
+        kv_norm = self.norm_kv(key_value)
+        attn_out, _ = self.mha(query=q_norm, key=kv_norm, value=kv_norm)
+        return query + self.dropout(attn_out)
 
-class DualStreamGRU_v6_Slim5(nn.Module):
-    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=24, num_heads=2, num_classes=3):
-        super(DualStreamGRU_v6_Slim5, self).__init__()
+class DualStream_GRU_PreLN_Transformer(nn.Module):
+    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2):
+        super().__init__()
         self.stock_gru = nn.GRU(stock_dim, hidden_dim, batch_first=True, num_layers=1)
         self.macro_gru = nn.GRU(macro_dim, hidden_dim, batch_first=True, num_layers=1)
-        self.cross_attn = CrossAttentionBlock(hidden_dim, num_heads=num_heads, dropout=0.3)
+        
+        self.stock_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+        self.macro_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+        
+        self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout)
         self.pool = DecayPooling(seq_len=10)
         
         self.classifier = nn.Sequential(
             nn.Linear(hidden_dim, 16),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(dropout),
             nn.Linear(16, num_classes)
         )
 
     def forward(self, x_stock, x_macro):
-        out_stock, _ = self.stock_gru(x_stock)
-        out_macro, _ = self.macro_gru(x_macro)
-        fused = self.cross_attn(out_stock, out_macro)
+        h_s, _ = self.stock_gru(x_stock)
+        h_m, _ = self.macro_gru(x_macro)
+        
+        feat_s = self.stock_encoder(h_s)
+        feat_m = self.macro_encoder(h_m)
+        
+        fused = self.cross_attn(feat_s, feat_m)
         pooled = self.pool(fused)
         return self.classifier(pooled)
 
 class AsymmetricPenaltyLoss(nn.Module):
-    def __init__(self, false_buy_penalty: float = 1.3, class_weights=None):
-        super(AsymmetricPenaltyLoss, self).__init__()
+    def __init__(self, false_buy_penalty: float = 1.15, class_weights=None):
+        super().__init__()
         self.penalty = false_buy_penalty
         self.ce = nn.CrossEntropyLoss(weight=class_weights, reduction='none')
 
@@ -84,7 +120,7 @@ class AsymmetricPenaltyLoss(nn.Module):
         base_loss = self.ce(logits, targets)
         probs = torch.softmax(logits, dim=-1)
         is_actual_loss = (targets == 0)
-        p_profit = probs[:, 2]  # 買い（2）と誤認した確率
+        p_profit = probs[:, 2]
         multiplier = torch.ones_like(base_loss)
         multiplier[is_actual_loss] += (self.penalty - 1.0) * p_profit[is_actual_loss]
         return (base_loss * multiplier).mean()
@@ -102,10 +138,9 @@ class UniverseDataset(Dataset):
         return self.X_stock[idx], self.X_macro[idx], self.y[idx]
 
 # =============================================================================
-# 2. マクロ環境データ構築
+# 2. マクロ環境データ
 # =============================================================================
 def load_macro_slim5(db_path=DB_PATH):
-    print("[*] マクロ・需給特徴量（確定建玉＋CTA先物 5次元）を構築中...")
     if not os.path.exists(db_path):
         raise FileNotFoundError(f"[!] {db_path} が見つかりません。")
 
@@ -122,7 +157,6 @@ def load_macro_slim5(db_path=DB_PATH):
     macro_df['NK_Close'] = n225['Close']
     macro_df['NK_Ret'] = n225['Close'].pct_change(fill_method=None).fillna(0.0)
 
-    # 過去リークを防ぐため、前方補間のみで欠損を処理
     macro_df = macro_df.join(jpx_db, how='inner').ffill().fillna(0.0)
 
     pin_strike = (macro_df['call_oi_wall'] + macro_df['put_oi_wall']) / 2.0
@@ -132,14 +166,13 @@ def load_macro_slim5(db_path=DB_PATH):
     cta_mean = macro_df['cta_net_futures'].rolling(60, min_periods=10).mean()
     cta_std = macro_df['cta_net_futures'].rolling(60, min_periods=10).std() + 1e-5
     macro_df['cta_net_norm'] = ((macro_df['cta_net_futures'] - cta_mean) / cta_std).fillna(0.0)
-
     macro_df['cta_momentum'] = (macro_df['cta_net_futures'] - macro_df['cta_net_futures'].shift(5)).fillna(0.0) / 5000.0
     macro_df['nk_ret_norm'] = macro_df['NK_Ret'] / 0.015
 
     return macro_df
 
 # =============================================================================
-# 3. データセット構築（生リターン基準ベータ ＆ 10日保有ターゲット）
+# 3. データセット構築 (TIME_OUT ret_pct 反映版ラベリング)
 # =============================================================================
 def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10):
     stock_cols = ['stock_ret_1d', 'stock_ret_5d', 'atr_ratio', 'rolling_beta', 'vol_ratio_5d']
@@ -148,20 +181,17 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
     tr_x_s, tr_x_m, tr_y = [], [], []
     va_x_s, va_x_m, va_y = [], [], []
 
-    print(f"[*] 全 {len(tickers)} 銘柄からデータセット構築中...")
+    print(f"[*] 全 {len(tickers)} 銘柄からデータセット構築中 (TIME_OUT 閾値反映)...")
     m_start = (macro_df.index.min() - datetime.timedelta(days=40)).strftime("%Y-%m-%d")
 
-    # 修正箇所: train_model_v6_universe_v5.py の 140行目付近
     for i, t in enumerate(tickers):
         try:
-            # auto_adjust=True を追加して株式分割・併合を自動補正
             df = yf.download(t, start=m_start, interval="1d", auto_adjust=True, progress=False)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df.index = pd.to_datetime(df.index).tz_localize(None)
             df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
 
-            # 欠損・売買停止・データ不足ガード
             if len(df) < seq_len + holding_period + 25 or (df['Volume'] == 0).all():
                 continue
 
@@ -178,7 +208,6 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
             df['ATR'] = atr
             df['atr_ratio'] = (atr / (df['Close'] + 1e-7)).fillna(0.0)
 
-            # 生リターン基準のベータ
             aligned_nk = macro_df['NK_Ret'].reindex(df.index).fillna(0.0)
             cov = df['stock_ret_1d'].rolling(20).cov(aligned_nk)
             var = aligned_nk.rolling(20).var()
@@ -200,7 +229,9 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
                 entry_p = closes[idx]
                 upper_p = entry_p + (2.0 * atrs[idx])
                 lower_p = entry_p - (1.0 * atrs[idx])
-                outcome = 1
+                outcome = None
+                
+                # 1. 期間内の利確/損切り判定
                 for h in range(1, holding_period + 1):
                     if lows[idx + h] <= lower_p and highs[idx + h] >= upper_p:
                         outcome = 0
@@ -211,6 +242,18 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
                     elif lows[idx + h] <= lower_p:
                         outcome = 0
                         break
+                
+                # 2. ★ タイムアウト時の再判定ロジック
+                if outcome is None:
+                    exit_p = closes[idx + holding_period]
+                    time_out_ret = (exit_p - entry_p) / entry_p
+                    if time_out_ret >= 0.005:      # +0.5% 以上 -> 利確 (クラス 2)
+                        outcome = 2
+                    elif time_out_ret <= -0.005:   # -0.5% 以下 -> 損切り (クラス 0)
+                        outcome = 0
+                    else:
+                        outcome = 1                # -0.5% 〜 +0.5% -> 中立 (クラス 1)
+                        
                 targets[idx] = outcome
 
             df['Target'] = targets
@@ -226,7 +269,6 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
             for idx in range(seq_len - 1, n_samples):
                 w_s = vals_s[idx - seq_len + 1 : idx + 1].copy()
                 w_m = vals_m[idx - seq_len + 1 : idx + 1].copy()
-
                 w_s = (w_s - w_s.mean(axis=0)) / (w_s.std(axis=0) + 1e-7)
                 target = vals_y[idx]
 
@@ -238,21 +280,20 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
                     va_x_s.append(w_s)
                     va_x_m.append(w_m)
                     va_y.append(target)
-
         except Exception:
             continue
 
         if (i + 1) % 50 == 0 or (i + 1) == len(tickers):
             print(f"  --> {i + 1}/{len(tickers)} 銘柄 完了")
 
-    tr_x_s, tr_x_m, tr_y = np.array(tr_x_s), np.array(tr_x_m), np.array(tr_y)
-    va_x_s, va_x_m, va_y = np.array(va_x_s), np.array(va_x_m), np.array(va_y)
-    return (tr_x_s, tr_x_m, tr_y), (va_x_s, va_x_m, va_y), stock_cols, macro_cols
+    return (np.array(tr_x_s), np.array(tr_x_m), np.array(tr_y)), \
+           (np.array(va_x_s), np.array(va_x_m), np.array(va_y)), \
+           stock_cols, macro_cols
 
 # =============================================================================
-# 4. 学習ループ (改修版v6 黄金比安定構成)
+# 4. 学習ループ
 # =============================================================================
-def train_universe_model_v5():
+def train():
     if os.path.exists(UNIVERSE_PATH):
         with open(UNIVERSE_PATH, "r", encoding="utf-8") as f:
             tickers = [line.strip() for line in f if line.strip()]
@@ -260,64 +301,61 @@ def train_universe_model_v5():
         tickers = ["7203.T", "6758.T", "8035.T", "8306.T", "9432.T", "7167.T", "4519.T", "5726.T"]
 
     macro_df = load_macro_slim5()
-    print(f"[+] マクロ実データ整合期間: {macro_df.index.min().date()} 〜 {macro_df.index.max().date()} ({len(macro_df)} 営業日)")
-
-    train_data, val_data, s_cols, m_cols = build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10)
-
+    train_data, val_data, s_cols, m_cols = build_universe_dataset_slim(tickers, macro_df)
     tr_x_s, tr_x_m, tr_y = train_data
     va_x_s, va_x_m, va_y = val_data
 
-    print(f"[+] データセット構築完了: Trainサンプル数 = {len(tr_y)}, Valサンプル数 = {len(va_y)}")
+    print(f"[+] データ構築完了: Train = {len(tr_y)}, Val = {len(va_y)}")
+    
+    # クラス内訳を表示
+    for c in range(3):
+        print(f"  - クラス {c}: Train={np.sum(tr_y==c)} ({np.mean(tr_y==c)*100:.1f}%) | Val={np.sum(va_y==c)} ({np.mean(va_y==c)*100:.1f}%)")
 
-    train_ds = UniverseDataset(tr_x_s, tr_x_m, tr_y)
-    val_ds = UniverseDataset(va_x_s, va_x_m, va_y)
-
-    train_loader = DataLoader(train_ds, batch_size=64, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=128, shuffle=False)
+    train_loader = DataLoader(UniverseDataset(tr_x_s, tr_x_m, tr_y), batch_size=128, shuffle=True, pin_memory=True)
+    val_loader = DataLoader(UniverseDataset(va_x_s, va_x_m, va_y), batch_size=256, shuffle=False, pin_memory=True)
 
     class_counts = np.bincount(tr_y)
     weights = len(tr_y) / (len(class_counts) * class_counts + 1e-5)
     class_weights = torch.tensor(weights, dtype=torch.float32)
 
-    model = DualStreamGRU_v6_Slim5(
-        stock_dim=len(s_cols), macro_dim=len(m_cols), hidden_dim=24, num_heads=2, num_classes=3
+    model = DualStream_GRU_PreLN_Transformer(
+        stock_dim=len(s_cols), macro_dim=len(m_cols),
+        hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2
     ).to(DEVICE)
 
-    criterion = AsymmetricPenaltyLoss(false_buy_penalty=1.3, class_weights=class_weights.to(DEVICE))
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.00015, weight_decay=1e-2)
+    criterion = AsymmetricPenaltyLoss(false_buy_penalty=1.15, class_weights=class_weights.to(DEVICE))
+    # 実績のある安定パラメータ
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.00005, weight_decay=3e-2)
 
     best_val_loss = float('inf')
-    patience = 6
+    patience = 7
     patience_cnt = 0
+    epochs = 30
 
-    print("\n[*] [改修版v6 決定版] 確定建玉＋CTA先物・非対称損失関数による学習開始 (lr=0.00015)...")
-    epochs = 25
-
+    print("\n[*] [v8 TIME_OUT改訂版] 学習開始...")
     for epoch in range(1, epochs + 1):
         model.train()
         total_tr_loss = 0.0
         for b_xs, b_xm, b_y in train_loader:
-            b_xs, b_xm, b_y = b_xs.to(DEVICE), b_xm.to(DEVICE), b_y.to(DEVICE)
+            b_xs, b_xm, b_y = b_xs.to(DEVICE, non_blocking=True), b_xm.to(DEVICE, non_blocking=True), b_y.to(DEVICE, non_blocking=True)
             optimizer.zero_grad()
-            out = model(b_xs, b_xm)
-            loss = criterion(out, b_y)
+            loss = criterion(model(b_xs, b_xm), b_y)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             total_tr_loss += loss.item() * len(b_y)
 
-        train_loss = total_tr_loss / len(train_ds)
+        train_loss = total_tr_loss / len(tr_y)
 
         model.eval()
         total_va_loss = 0.0
         with torch.no_grad():
             for b_xs, b_xm, b_y in val_loader:
-                b_xs, b_xm, b_y = b_xs.to(DEVICE), b_xm.to(DEVICE), b_y.to(DEVICE)
-                out = model(b_xs, b_xm)
-                loss = criterion(out, b_y)
+                b_xs, b_xm, b_y = b_xs.to(DEVICE, non_blocking=True), b_xm.to(DEVICE, non_blocking=True), b_y.to(DEVICE, non_blocking=True)
+                loss = criterion(model(b_xs, b_xm), b_y)
                 total_va_loss += loss.item() * len(b_y)
 
-        val_loss = total_va_loss / len(val_ds)
+        val_loss = total_va_loss / len(va_y)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -326,18 +364,20 @@ def train_universe_model_v5():
                 'model_state_dict': model.state_dict(),
                 'stock_cols': s_cols,
                 'macro_cols': m_cols,
-                'hidden_dim': 24,
+                'hidden_dim': 20,
+                'num_heads': 1,
+                'dropout': 0.2,
                 'val_loss': best_val_loss
             }, MODEL_SAVE_PATH)
-            print(f"  Epoch [{epoch:02d}/{epochs:02d}] - Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}  --> [Best Val Loss 更新 ★]")
+            print(f"  Epoch [{epoch:02d}/{epochs:02d}] - Train: {train_loss:.4f} | Val: {val_loss:.4f}  --> [Best Val Loss 更新 ★]")
         else:
             patience_cnt += 1
-            print(f"  Epoch [{epoch:02d}/{epochs:02d}] - Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}  (Patience: {patience_cnt}/{patience})")
+            print(f"  Epoch [{epoch:02d}/{epochs:02d}] - Train: {train_loss:.4f} | Val: {val_loss:.4f}  (Patience: {patience_cnt}/{patience})")
             if patience_cnt >= patience:
-                print(f"[*] Early Stopping 発動: Epoch {epoch} で学習を終了します。")
+                print(f"[*] Early Stopping 発動 (Epoch {epoch})")
                 break
 
-    print(f"\n[+] 最適モデル重みを保存しました: {MODEL_SAVE_PATH}")
+    print(f"\n[+] 重み保存完了: {MODEL_SAVE_PATH}")
 
 if __name__ == "__main__":
-    train_universe_model_v5()
+    train()
