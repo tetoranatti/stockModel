@@ -1,26 +1,38 @@
-import re
+# run_dynamic_regime_screening_v6.py
 import os
-import shutil
-import glob
 import random
 import datetime
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
-import yfinance as yf
 
-# =============================================================================
-# 設定・パス・乱数シード固定
-# =============================================================================
+# 各種モジュールの読み込み
+from modules.data_loader import (
+    load_screener_tickers,
+    fetch_all_tickers_data,
+    load_margin_cache,
+    load_sector_data
+)
+from modules.sector_matcher import get_ticker_sector_sentiment
+from modules.regime_detector import load_macro_environment, detect_macro_regime
+from modules.model_inference import (
+    load_trained_model,
+    predict_probabilities,
+    compute_supply_demand_factor,
+    apply_odds_adjustment
+)
+from modules.risk_manager import (
+    determine_sizing_factor,
+    evaluate_screening_gate,
+    calculate_target_stop_levels
+)
+
+# パス設定
 BASE_DIR = r"F:\stockModel"
-DOWNLOADS_DIR = os.path.join(os.environ["USERPROFILE"], "Downloads")
-SCREENER_CSV = os.path.join(BASE_DIR, "screener_result.csv")
-JPX_DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
 MODEL_WEIGHTS = os.path.join(BASE_DIR, "swing_model_v6_crossattn_universe_v5.pt")
 OUTPUT_CSV = os.path.join(BASE_DIR, "final_regime_screened_v6.csv")
+OUTPUT_JSON = os.path.join(BASE_DIR, "data", "screening_results.json")
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MIN_TURNOVER = 10e8  # 5日平均売買代金10億円以上
 SEQ_LEN = 10
 
@@ -31,179 +43,59 @@ def set_seed(seed=42):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-set_seed(42)
-
-# =============================================================================
-# 1. モデル定義
-# =============================================================================
-class DecayPooling(nn.Module):
-    def __init__(self, seq_len=10):
-        super().__init__()
-        weights = np.exp(np.linspace(-1.5, 0.0, seq_len))
-        weights = weights / weights.sum()
-        self.register_buffer("weights", torch.tensor(weights, dtype=torch.float32).unsqueeze(0).unsqueeze(-1))
-
-    def forward(self, x):
-        return torch.sum(x * self.weights, dim=1)
-
-class CrossAttentionBlock(nn.Module):
-    def __init__(self, hidden_dim=24, num_heads=2, dropout=0.3):
-        super().__init__()
-        self.mha = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, query, key_value):
-        attn_out, _ = self.mha(query=query, key=key_value, value=key_value)
-        return self.norm(query + self.dropout(attn_out))
-
-class DualStreamGRU_v6_Slim5(nn.Module):
-    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=24, num_heads=2, num_classes=3):
-        super().__init__()
-        self.stock_gru = nn.GRU(stock_dim, hidden_dim, batch_first=True, num_layers=1)
-        self.macro_gru = nn.GRU(macro_dim, hidden_dim, batch_first=True, num_layers=1)
-        self.cross_attn = CrossAttentionBlock(hidden_dim, num_heads=num_heads, dropout=0.3)
-        self.pool = DecayPooling(seq_len=10)
-        
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, 16),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(16, num_classes)
-        )
-
-    def forward(self, x_stock, x_macro):
-        out_stock, _ = self.stock_gru(x_stock)
-        out_macro, _ = self.macro_gru(x_macro)
-        fused = self.cross_attn(out_stock, out_macro)
-        pooled = self.pool(fused)
-        return self.classifier(pooled)
-
-# =============================================================================
-# 2. 最新CSV同期 & マクロ環境データ構築
-# =============================================================================
-def sync_latest_csv():
-    pattern = os.path.join(DOWNLOADS_DIR, "*screener*.csv")
-    files = glob.glob(pattern)
-    if files:
-        latest = max(files, key=os.path.getmtime)
-        shutil.copy2(latest, SCREENER_CSV)
-        print(f"[+] 最新スクリーニングCSVを自動同期: {os.path.basename(latest)}")
-
-def load_macro_environment():
-    if not os.path.exists(JPX_DB_PATH):
-        raise FileNotFoundError(f"[!] {JPX_DB_PATH} が見つかりません。")
-
-    jpx_db = pd.read_csv(JPX_DB_PATH, index_col=0, parse_dates=True)
-    jpx_db.index = pd.to_datetime(jpx_db.index).tz_localize(None)
-    start_date = (jpx_db.index.min() - datetime.timedelta(days=20)).strftime("%Y-%m-%d")
-
-    n225 = yf.download("^N225", start=start_date, interval="1d", progress=False)
-    if isinstance(n225.columns, pd.MultiIndex):
-        n225.columns = n225.columns.get_level_values(0)
-    n225.index = pd.to_datetime(n225.index).tz_localize(None)
-
-    macro_df = pd.DataFrame(index=n225.index)
-    macro_df['NK_Close'] = n225['Close']
-    macro_df['NK_Ret'] = n225['Close'].pct_change(fill_method=None).fillna(0.0)
-
-    # 過去リークを防ぐ前方補間
-    macro_df = macro_df.join(jpx_db, how='inner').ffill().fillna(0.0)
-
-    # 特徴量算出
-    pin_strike = (macro_df['call_oi_wall'] + macro_df['put_oi_wall']) / 2.0
-    macro_df['pin_dist_ratio'] = ((macro_df['NK_Close'] - pin_strike) / (pin_strike + 1e-5)) / 0.02
-    macro_df['wall_spread'] = ((macro_df['call_oi_wall'] - macro_df['put_oi_wall']).abs() / (pin_strike + 1e-5)) / 0.02
-
-    cta_mean = macro_df['cta_net_futures'].rolling(60, min_periods=10).mean()
-    cta_std = macro_df['cta_net_futures'].rolling(60, min_periods=10).std() + 1e-5
-    macro_df['cta_net_norm'] = ((macro_df['cta_net_futures'] - cta_mean) / cta_std).fillna(0.0)
-
-    macro_df['cta_momentum'] = (macro_df['cta_net_futures'] - macro_df['cta_net_futures'].shift(5)).fillna(0.0) / 5000.0
-    macro_df['nk_ret_norm'] = macro_df['NK_Ret'] / 0.015
-
-    return macro_df
-
-# =============================================================================
-# 3. 実行メイン処理
-# =============================================================================
 def main():
+    set_seed(42)
     print("=" * 95)
-    print("【v6スイングモデル 確定建玉＋CTA先物 統合型スクリーニング (EV最適化版)】")
+    print("【v6スイングモデル 高速一括スクリーニング (完全モジュール化版)】")
     print("=" * 95)
-
-    sync_latest_csv()
 
     if not os.path.exists(MODEL_WEIGHTS):
         print(f"[!] モデル重みが見つかりません: {MODEL_WEIGHTS}")
         return
 
-    checkpoint = torch.load(MODEL_WEIGHTS, map_location=DEVICE)
-    stock_cols = checkpoint['stock_cols']
-    macro_cols = checkpoint['macro_cols']
-    hidden_dim = checkpoint.get('hidden_dim', 24)
+    # 1. モデルロード
+    model, stock_cols, macro_cols = load_trained_model(MODEL_WEIGHTS)
 
-    model = DualStreamGRU_v6_Slim5(
-        stock_dim=len(stock_cols),
-        macro_dim=len(macro_cols),
-        hidden_dim=hidden_dim,
-        num_classes=3
-    ).to(DEVICE)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model.eval()
-
+    # 2. マクロ環境・レジーム判定
     macro_df = load_macro_environment()
-    latest_macro = macro_df.iloc[-1]
+    regime = detect_macro_regime(macro_df)
 
-    pin_dist = latest_macro['pin_dist_ratio']
-    cta_norm = latest_macro['cta_net_norm']
-    cta_mom = latest_macro['cta_momentum']
-    cta_raw = latest_macro.get('cta_net_futures', 0.0)
+    # 3. 需給・セクターマスターロード
+    margin_cache = load_margin_cache()
+    sentiment_map, master_map = load_sector_data()
 
-    # 地合いレジーム判定
-    is_bear_regime = (pin_dist < -1.0) or (cta_norm < -0.8 and cta_mom < 0.0)
-    
-    # バックテスト検証に基づく最適閾値
-    strong_buy_th = 0.365 if is_bear_regime else 0.360
-    buy_threshold = 0.355 if is_bear_regime else 0.350
-    watch_threshold = 0.345 if is_bear_regime else 0.340
+    print(f"[*] 信用需給キャッシュ: {len(margin_cache)} 銘柄ロード済み")
+    print(f"[*] セクターセンチメント: {len(sentiment_map)} セクター | 銘柄マスター: {len(master_map)} 件")
+    print(f"\n[★] マクロ環境: {'【BEAR レジーム】' if regime['is_bear'] else '【BULL/NEUTRAL レジーム】'}")
+    print(f"   - ピン留め乖離: {regime['pin_dist']*2.0:+.2f}% | CTA純建玉: {regime['cta_raw']:+.1f} 枚 (Z: {regime['cta_norm']:+.2f})\n")
 
-    print(f"\n[★] 現在のマクロ需給環境認識:")
-    print(f"  - 地合いレジーム: {'【警戒・下落加速リスク (BEAR)】' if is_bear_regime else '【通常・押し目有効 (BULL/NEUTRAL)】'}")
-    print(f"  - ピン留め水準乖離: {pin_dist*2.0:+.2f}% ({'支持線割れ警戒' if pin_dist < -1.0 else '支持・引力圏内'})")
-    print(f"  - CTA先物純建玉: {cta_raw:+.1f} 枚 (Z-Score: {cta_norm:+.2f}, 5日勢い: {cta_mom:+.2f})")
-    print(f"  - 適用買閾値: STRONG BUY >= {strong_buy_th:.3f} | BUY >= {buy_threshold:.3f} | WATCH >= {watch_threshold:.3f}\n")
+    # 4. 対象銘柄の特定 & 株価一括取得
+    tickers = load_screener_tickers()
+    if not tickers:
+        print("[-] スキャン対象銘柄が存在しません。")
+        return
 
-    try:
-        raw_df = pd.read_csv(SCREENER_CSV, encoding='cp932')
-    except Exception:
-        raw_df = pd.read_csv(SCREENER_CSV, encoding='utf-8')
-
-    code_col = [c for c in raw_df.columns if "コード" in str(c)][0]
-
-    # 修正後（4桁数字、または数字3桁+英字1文字に対応）:
-    tickers = [
-        f"{str(c).strip()}.T" 
-        for c in raw_df[code_col] 
-        if re.match(r"^[0-9]{4}$|^[0-9]{3}[A-Z]$", str(c).strip().upper())
-    ]
-
-    print(f"[*] スキャン対象母集団: {len(tickers)} 銘柄 (売買代金10億円以上フィルター適用)")
-
+    print(f"[*] スキャン対象母集団: {len(tickers)} 銘柄")
     macro_feed = macro_df[macro_cols]
     m_start = (macro_df.index.min() - datetime.timedelta(days=40)).strftime("%Y-%m-%d")
+    all_prices_df = fetch_all_tickers_data(tickers, m_start)
 
     candidates = []
+    has_multi_tickers = isinstance(all_prices_df.columns, pd.MultiIndex)
+    print(f"[*] メモリ上で特徴量算出 & GPU推論を開始...")
 
     for i, t in enumerate(tickers):
         try:
-            df = yf.download(t, start=m_start, interval="1d", progress=False)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
+            if has_multi_tickers:
+                if t not in all_prices_df.columns.levels[0]:
+                    continue
+                df = all_prices_df[t].copy()
+            else:
+                df = all_prices_df.copy()
+
             df.index = pd.to_datetime(df.index).tz_localize(None)
             df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
-            
-            # データ不足・取引停止スキップ
+
             if len(df) < SEQ_LEN + 20 or (df['Volume'] == 0).all():
                 continue
 
@@ -224,7 +116,6 @@ def main():
             df['ATR'] = atr
             df['atr_ratio'] = (atr / (df['Close'] + 1e-7)).fillna(0.0)
 
-            # 生リターン基準のベータ
             aligned_nk = macro_df['NK_Ret'].reindex(df.index).fillna(0.0)
             cov = df['stock_ret_1d'].rolling(20).cov(aligned_nk)
             var = aligned_nk.rolling(20).var()
@@ -238,76 +129,93 @@ def main():
             w_s = df[stock_cols].values[-SEQ_LEN:].copy()
             w_m = df[macro_cols].values[-SEQ_LEN:].copy()
 
-            w_s_norm = (w_s - w_s.mean(axis=0)) / (w_s.std(axis=0) + 1e-7)
+            # GPU 推論
+            p_win_raw, p_stop_raw, ev_raw = predict_probabilities(model, w_s, w_m)
 
-            t_s = torch.tensor(w_s_norm, dtype=torch.float32).unsqueeze(0).to(DEVICE)
-            t_m = torch.tensor(w_m, dtype=torch.float32).unsqueeze(0).to(DEVICE)
-
-            with torch.no_grad():
-                probs = torch.softmax(model(t_s, t_m), dim=-1).squeeze(0).cpu().numpy()
-
-            p_stop, p_wait, p_win = float(probs[0]), float(probs[1]), float(probs[2])
-            beta = float(df['rolling_beta'].iloc[-1])
             curr_close = float(df['Close'].iloc[-1])
+            curr_open = float(df['Open'].iloc[-1])
             curr_atr = float(df['ATR'].iloc[-1])
+            beta = float(df['rolling_beta'].iloc[-1])
             vol_ratio = float(df['vol_ratio_5d'].iloc[-1])
+            ret_1d = float(df['stock_ret_1d'].iloc[-1])
+            is_bear_candle = curr_close < curr_open
 
-            # 期待値スコア (Rベース: 2.0 * Win - 1.0 * Stop)
-            ev_score = round(2.0 * p_win - 1.0 * p_stop, 3)
+            # 1. 需給補正
+            m_item = margin_cache.get(t)
+            sd_weight, days_to_clear = compute_supply_demand_factor(m_item, curr_close, turnover_5d)
+            p_win_adj, p_stop_adj = apply_odds_adjustment(p_win_raw, p_stop_raw, sd_weight)
 
-            action = "⏸️ WAIT"
-            gate_reason = "見送り"
+            # 2. セクターセンチメント補正
+            sec_info = get_ticker_sector_sentiment(t, sentiment_map, master_map)
+            sec_name = sec_info.get("name", "") if sec_info else ""
+            sec_score = float(sec_info.get("score", 0.0)) if sec_info else 0.0
+            sec_shock = bool(sec_info.get("shock_detected", False)) if sec_info else False
+            sec_advice = str(sec_info.get("action_advice", "通常")) if sec_info else "通常"
+            sec_summary = str(sec_info.get("summary", "")) if sec_info else ""
 
-            # 1. 空売り・ヘッジ判定 (⚠️ SHORT / HEDGE)
-            is_hedge_candidate = is_bear_regime and (beta >= 1.15) and (p_stop >= 0.500) and (p_stop - p_win >= 0.15)
+            if sec_score != 0.0:
+                sec_weight = 1.0 + (sec_score * 0.08)
+                p_win_adj, p_stop_adj = apply_odds_adjustment(p_win_adj, p_stop_adj, sec_weight)
 
-            if is_hedge_candidate:
-                action = "⚠️ SHORT / HEDGE"
-                gate_reason = f"地合い連動下落ヘッジ(β={beta:.2f}, 損率={p_stop*100:.1f}%)"
+            ev_adj = round(2.0 * p_win_adj - 1.0 * p_stop_adj, 3)
 
-            # 2. 買いシグナル判定
-            elif p_win >= strong_buy_th and p_win > p_stop:
-                action = "🔥 STRONG BUY"
-                gate_reason = f"本買い適合(勝率{p_win*100:.1f}%, EV={ev_score:+.2f}R)"
-            
-            elif p_win >= buy_threshold and p_win > p_stop and vol_ratio >= 0.85:
-                if is_bear_regime and beta >= 1.0:
-                    action = "⏸️ WAIT"
-                    gate_reason = f"地合い悪化時の高β見送り(β={beta:.2f})"
-                else:
-                    action = "🎯 BUY"
-                    gate_reason = f"打診買い適合(勝率{p_win*100:.1f}%, 出来高{vol_ratio:.2f}x)"
+            # 3. ロット調整係数
+            margin_ratio_val = float(m_item.get("margin_ratio", 1.0) if m_item else 1.0)
+            size_factor, size_reason = determine_sizing_factor(
+                ret_1d, is_bear_candle, days_to_clear, margin_ratio_val, sec_advice
+            )
 
-            elif p_win >= watch_threshold and p_win > p_stop:
-                action = "👀 WATCH"
-                gate_reason = f"監視対象(勝率{p_win*100:.1f}%)"
+            # 4. ゲート採否判定
+            action, gate_reason = evaluate_screening_gate(
+                p_win=p_win_adj,
+                p_stop=p_stop_adj,
+                ev_adj=ev_adj,
+                beta=beta,
+                vol_ratio=vol_ratio,
+                days_to_clear=days_to_clear,
+                is_bear_regime=regime['is_bear'],
+                strong_buy_th=regime['strong_buy_th'],
+                buy_threshold=regime['buy_threshold'],
+                watch_threshold=regime['watch_threshold'],
+                sec_shock=sec_shock,
+                sec_advice=sec_advice,
+                sec_summary=sec_summary
+            )
 
-            if action == "⚠️ SHORT / HEDGE":
-                target_price = round(curr_close - 2.0 * curr_atr, 1)
-                stop_price = round(curr_close + 1.0 * curr_atr, 1)
-            else:
-                target_price = round(curr_close + 2.0 * curr_atr, 1)
-                stop_price = round(curr_close - 1.0 * curr_atr, 1)
+            # 目標値・損切値
+            target_price, stop_price = calculate_target_stop_levels(curr_close, curr_atr, action)
 
             candidates.append({
                 'ticker': t,
                 'price': curr_close,
                 'target_price': target_price,
                 'stop_price': stop_price,
-                'prob_win': round(p_win, 4),
-                'prob_stop': round(p_stop, 4),
-                'ev_score': ev_score,
+                'prob_win': p_win_adj,
+                'prob_win_raw': round(p_win_raw, 4),
+                'prob_stop': p_stop_adj,
+                'prob_stop_raw': round(p_stop_raw, 4),
+                'ev_score': ev_adj,
+                'ev_score_raw': ev_raw,
+                'sd_weight': sd_weight,
+                'days_to_clear': days_to_clear,
+                'size_factor': size_factor,
+                'size_reason': size_reason,
                 'beta': round(beta, 2),
                 'vol_ratio': round(vol_ratio, 2),
                 'turnover_oku': round(turnover_5d / 1e8, 1),
                 'action': action,
-                'reason': gate_reason
+                'reason': gate_reason,
+                'sector_name': sec_name,
+                'sector_score': sec_score,
+                'sector_shock': sec_shock,
+                'sector_advice': sec_advice,
+                'sector_summary': sec_summary
             })
         except Exception:
             continue
 
         if (i + 1) % 50 == 0 or (i + 1) == len(tickers):
-            print(f"  --> {i + 1}/{len(tickers)} 銘柄 スキャン完了")
+            print(f"  --> {i + 1}/{len(tickers)} 銘柄 完了")
 
     res_df = pd.DataFrame(candidates)
     if res_df.empty:
@@ -322,26 +230,42 @@ def main():
         "⏸️ WAIT": 5
     }
     res_df['priority'] = res_df['action'].map(priority_map)
-    # アクション優先度 -> 期待値スコア(ev_score)の降順で整列
     res_df = res_df.sort_values(by=['priority', 'ev_score'], ascending=[True, False]).drop(columns=['priority'])
 
+    # CSV 出力
     res_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8-sig')
 
+    # UI用 JSON 出力
+    try:
+        json_payload = {
+            "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "macro_regime": {
+                "is_bear": regime['is_bear'],
+                "pin_dist": regime['pin_dist'],
+                "cta_raw": regime['cta_raw']
+            },
+            "results": res_df.to_dict(orient="records")
+        }
+        with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
+            import json
+            json.dump(json_payload, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[!] JSON保存スキップ: {e}")
+
     print("\n" + "=" * 95)
-    print("【動的スクリーニング結果 (推奨・ヘッジ・監視ピックアップ)】")
+    print("【動的スクリーニング結果】")
     print("=" * 95)
 
     pickups = res_df[res_df['action'] != "⏸️ WAIT"]
-    show_cols = ['ticker', 'price', 'target_price', 'stop_price', 'prob_win', 'ev_score', 'beta', 'vol_ratio', 'action', 'reason']
+    show_cols = ['ticker', 'price', 'ev_score', 'prob_win', 'days_to_clear', 'size_factor', 'action', 'sector_name']
     if not pickups.empty:
         print(pickups.head(25)[show_cols].to_string(index=False))
     else:
         print(res_df.head(15)[show_cols].to_string(index=False))
 
     print("=" * 95)
-    action_counts = res_df['action'].value_counts().to_dict()
-    print(f"[*] 判定サマリ: {action_counts}")
-    print(f"[+] 全結果を保存しました: {OUTPUT_CSV}")
+    print(f"[*] 判定サマリ: {res_df['action'].value_counts().to_dict()}")
+    print(f"[+] 保存完了: {OUTPUT_CSV}")
 
 if __name__ == "__main__":
     main()
