@@ -13,12 +13,14 @@ from dotenv import load_dotenv
 BASE_DIR = r"F:\stockModel"
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
+MARGIN_DIR = os.path.join(DATA_DIR, "margin")
 UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
 TRAIN_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
 TOPIX_CACHE_PATH = os.path.join(CACHE_DIR, "train_topix_bars.parquet")
 NK225_UNDERLYING_CACHE_PATH = os.path.join(CACHE_DIR, "train_nk225_underlying.parquet")
 
 os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs(MARGIN_DIR, exist_ok=True)
 load_dotenv()
 
 # APIキー設定
@@ -150,6 +152,31 @@ def fetch_nk225_underlying(session, date_str, rate_limiter=None):
     except Exception as e:
         print(f"[!] {date_str} 日経225原証券価格取得エラー: {e}")
         return None
+
+def fetch_margin_interest_by_date(session, date_str, rate_limiter=None):
+    """J-Quants V2 API から信用取引週末残高(全銘柄、1リクエスト)を取得。未公表日はNone"""
+    url = f"{JQUANTS_BASE_URL}/markets/margin-interest"
+    try:
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+        res = session.get(url, params={"date": date_str}, timeout=15)
+        if res.status_code != 200:
+            return None
+        data = res.json().get("data", [])
+        return data if data else None
+    except Exception as e:
+        print(f"[!] {date_str} 信用取引週末残高取得エラー: {e}")
+        return None
+
+def fetch_latest_margin_interest(session, start_date, rate_limiter=None, max_lookback_days=10):
+    """start_date から遡って、直近で公表済みの信用取引週末残高(全銘柄)を探索して取得する
+    (週次公表のため、通常は直近の金曜日が見つかる)"""
+    for offset in range(max_lookback_days):
+        d = start_date - datetime.timedelta(days=offset)
+        data = fetch_margin_interest_by_date(session, d.strftime("%Y%m%d"), rate_limiter)
+        if data:
+            return d, data
+    return None, []
 
 def load_existing_cache(cache_path):
     """既存キャッシュを読み込み、(DataFrame, 最終日付) を返す。存在しなければ (None, None)"""
@@ -416,6 +443,64 @@ def main():
             print("[*] 日経225原証券価格: 新規データなし（既存キャッシュを維持）")
         else:
             print("[-] 日経225原証券価格を取得できませんでした（Standardプラン契約・APIキーをご確認ください）。")
+
+    # =========================================================================
+    # PART 4: 信用取引週末残高キャッシュ生成 (需給・大口買い集め検知シグナル用)
+    # 週次公表のため、今週分のキャッシュが既にあればスキップする。
+    # run_dynamic_regime_screening_v8.py はこのキャッシュを読んで判定に使うため、
+    # 必ずスクリーニング実行より前にこのキャッシュを最新化しておく必要がある。
+    # =========================================================================
+    print("\n" + "=" * 75)
+    print("【4/4】信用取引週末残高キャッシュ生成")
+    print("=" * 75)
+
+    margin_year, margin_week, _ = today_d.isocalendar()
+    margin_cache_path = os.path.join(MARGIN_DIR, f"margin_cache_{margin_year}_w{margin_week:02d}.json")
+
+    if os.path.exists(margin_cache_path):
+        print(f"[*] 信用取引週末残高キャッシュは既に今週分があります ({os.path.basename(margin_cache_path)})。スキップ")
+    else:
+        latest_date, latest_data = fetch_latest_margin_interest(session, today_d, rate_limiter)
+        if not latest_data:
+            print("[-] 信用取引週末残高を取得できませんでした。")
+        else:
+            prev_date, prev_data = fetch_latest_margin_interest(
+                session, latest_date - datetime.timedelta(days=1), rate_limiter
+            )
+            prev_map = {rec["Code"]: rec for rec in prev_data} if prev_data else {}
+
+            margin_dict = {}
+            for rec in latest_data:
+                code = str(rec["Code"])
+                ticker = f"{code[:4]}.T"
+                long_vol = float(rec.get("LongVol") or 0.0)
+                shrt_vol = float(rec.get("ShrtVol") or 0.0)
+                ratio = round(long_vol / shrt_vol, 2) if shrt_vol > 0 else 999.0
+
+                prev_rec = prev_map.get(code)
+                if prev_rec:
+                    prev_long = float(prev_rec.get("LongVol") or 0.0)
+                    buy_diff = long_vol - prev_long
+                    buy_pct = round((buy_diff / prev_long) * 100, 2) if prev_long > 0 else 0.0
+                else:
+                    buy_diff = 0.0
+                    buy_pct = 0.0
+
+                is_accumulating = (buy_pct <= -3.0) and (ratio <= 5.0)
+
+                margin_dict[ticker] = {
+                    "margin_date": latest_date.strftime("%Y-%m-%d"),
+                    "margin_buy": long_vol,
+                    "margin_buy_diff": buy_diff,
+                    "margin_buy_pct": buy_pct,
+                    "margin_short": shrt_vol,
+                    "margin_ratio": ratio,
+                    "is_accumulating": is_accumulating
+                }
+
+            with open(margin_cache_path, "w", encoding="utf-8") as f:
+                json.dump(margin_dict, f, ensure_ascii=False, indent=2)
+            print(f"[+] 信用取引週末残高キャッシュ保存完了: {margin_cache_path} ({len(margin_dict)} 銘柄, 基準日 {latest_date})")
 
     print("\n[+] 全キャッシュ生成パイプラインが正常に完了しました。")
 
