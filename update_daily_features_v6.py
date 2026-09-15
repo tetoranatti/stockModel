@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import openpyxl
 
+from modules.constants import CTA_BROKER_KEYWORDS
+
 # 平日祝日の自動判定用（jpholidayが未インストールの場合はフォールバック）
 try:
     import jpholiday
@@ -136,8 +138,8 @@ def parse_fut_cta(filepath: str):
     try:
         wb = openpyxl.load_workbook(filepath, data_only=True)
         ws = wb.active
-        
-        target_cta = ['ABNクリアリン', 'バークレイズ', 'ソシエテ']
+
+        target_cta = CTA_BROKER_KEYWORDS
         current_product = None
         cta_net = 0.0
 

@@ -6,6 +6,8 @@ import urllib.request
 import unicodedata
 import openpyxl
 
+from modules.constants import CTA_BROKER_KEYWORDS
+
 BASE_DIR = r"F:\stockModel"
 RAW_DIR = os.path.join(BASE_DIR, "jpx_raw_year")
 OUT_JSON = os.path.join(BASE_DIR, "macro_flow_signal.json")
@@ -90,7 +92,7 @@ def analyze_daily_flow():
     print(f"[*] 日次大口手口（CTA/J-NET）フロー解析開始: {today.strftime('%Y-%m-%d')}")
     print("=" * 65)
 
-    target_cta = ['ABNクリアリン', 'バークレイズ', 'ソシエテ']
+    target_cta = CTA_BROKER_KEYWORDS
 
     # 立会（Auction）とJ-NETの両方を自動探索・ダウンロード
     f_auc, ymd_auc = fetch_daily_volume_file(today, is_jnet=False)
