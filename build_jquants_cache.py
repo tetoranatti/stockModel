@@ -178,6 +178,43 @@ def fetch_latest_margin_interest(session, start_date, rate_limiter=None, max_loo
             return d, data
     return None, []
 
+def fetch_earnings_dates(session, code, rate_limiter=None):
+    """J-Quants V2 API から銘柄コード指定で決算発表予定日の履歴(過去〜直近)を取得"""
+    url = f"{JQUANTS_BASE_URL}/fins/earnings-date"
+    try:
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+        res = session.get(url, params={"code": code}, timeout=15)
+        if res.status_code != 200:
+            return []
+        return res.json().get("data", [])
+    except Exception as e:
+        print(f"[!] {code} 決算発表日取得エラー: {e}")
+        return []
+
+def fetch_equities_master_by_date(session, date_str, rate_limiter=None):
+    """J-Quants V2 API から指定日時点の上場銘柄マスター(全銘柄、ETF/REIT含む、1リクエスト)を取得"""
+    url = f"{JQUANTS_BASE_URL}/equities/master"
+    try:
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+        res = session.get(url, params={"date": date_str}, timeout=15)
+        if res.status_code != 200:
+            return []
+        return res.json().get("data", [])
+    except Exception as e:
+        print(f"[!] {date_str} 上場銘柄マスター取得エラー: {e}")
+        return []
+
+def fetch_latest_equities_master(session, start_date, rate_limiter=None, max_lookback_days=10):
+    """start_date から遡って、直近で取得可能な上場銘柄マスターを探索して取得する"""
+    for offset in range(max_lookback_days):
+        d = start_date - datetime.timedelta(days=offset)
+        data = fetch_equities_master_by_date(session, d.strftime("%Y%m%d"), rate_limiter)
+        if data:
+            return d, data
+    return None, []
+
 def load_existing_cache(cache_path):
     """既存キャッシュを読み込み、(DataFrame, 最終日付) を返す。存在しなければ (None, None)"""
     if not os.path.exists(cache_path):
@@ -223,7 +260,7 @@ def main():
     # PART 1: 当日スクリーニング ＆ UI用 キャッシュ生成（直近45日バルク取得）
     # =========================================================================
     print("=" * 75)
-    print("【1/2】日次スクリーニング用キャッシュ生成 (直近45営業日 / 代金10億円以上)")
+    print("【1/6】日次スクリーニング用キャッシュ生成 (直近45営業日 / 代金10億円以上)")
     print("=" * 75)
 
     target_days = get_recent_business_days(FETCH_DAYS)
@@ -325,7 +362,7 @@ def main():
     # PART 2: モデル学習用 キャッシュ生成（universe_150 の過去3年分）
     # =========================================================================
     print("\n" + "=" * 75)
-    print(f"【2/2】モデル学習用ユニバース長期データキャッシュ生成 (過去 {YEARS_BACK} 年分)")
+    print(f"【2/6】モデル学習用ユニバース長期データキャッシュ生成 (過去 {YEARS_BACK} 年分)")
     print("=" * 75)
 
     if not os.path.exists(UNIVERSE_PATH):
@@ -399,7 +436,7 @@ def main():
     # 差分更新: 既存キャッシュの最終日翌日から取得（初回のみ全期間分を取得）
     # =========================================================================
     print("\n" + "=" * 75)
-    print("【3/3】日経225原証券価格キャッシュ生成")
+    print("【3/6】日経225原証券価格キャッシュ生成")
     print("=" * 75)
 
     existing_nk225_df, nk225_last_date = load_existing_cache(NK225_UNDERLYING_CACHE_PATH)
@@ -451,7 +488,7 @@ def main():
     # 必ずスクリーニング実行より前にこのキャッシュを最新化しておく必要がある。
     # =========================================================================
     print("\n" + "=" * 75)
-    print("【4/4】信用取引週末残高キャッシュ生成")
+    print("【4/6】信用取引週末残高キャッシュ生成")
     print("=" * 75)
 
     margin_year, margin_week, _ = today_d.isocalendar()
@@ -501,6 +538,77 @@ def main():
             with open(margin_cache_path, "w", encoding="utf-8") as f:
                 json.dump(margin_dict, f, ensure_ascii=False, indent=2)
             print(f"[+] 信用取引週末残高キャッシュ保存完了: {margin_cache_path} ({len(margin_dict)} 銘柄, 基準日 {latest_date})")
+
+    # =========================================================================
+    # PART 5: 決算発表予定日キャッシュ生成 (UIの決算バッジ表示用)
+    # 銘柄ごとに1リクエスト必要なため、スクリーニング対象銘柄(qualified_tickers)
+    # のみを対象に、今日以降で最も近い予定日だけを抽出してキャッシュする。
+    # =========================================================================
+    print("\n" + "=" * 75)
+    print("【5/6】決算発表予定日キャッシュ生成")
+    print("=" * 75)
+
+    earnings_cache_path = os.path.join(CACHE_DIR, f"earnings_calendar_{today_d.strftime('%Y%m%d')}.json")
+    if os.path.exists(earnings_cache_path):
+        print(f"[*] 決算発表予定日キャッシュは本日分が既にあります。スキップ")
+    elif not qualified_tickers:
+        print("[-] スクリーニング対象銘柄が無いため、決算発表予定日の取得をスキップします。")
+    else:
+        today_str = today_d.strftime("%Y-%m-%d")
+        print(f"[*] 全 {len(qualified_tickers)} 銘柄の決算発表予定日を{FETCH_WORKERS}並列で取得中...")
+        earnings_dict = {}
+        with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
+            futures = {
+                executor.submit(fetch_earnings_dates, session, t.replace(".T", ""), rate_limiter): t
+                for t in qualified_tickers
+            }
+            done_count = 0
+            for future in as_completed(futures):
+                ticker = futures[future]
+                records = future.result()
+                future_records = [r for r in records if r.get("SchDate") and r["SchDate"] >= today_str]
+                if future_records:
+                    nearest = min(future_records, key=lambda r: r["SchDate"])
+                    earnings_dict[ticker] = {
+                        "next_earnings_date": nearest["SchDate"],
+                        "fq_name": nearest.get("FQName", "")
+                    }
+                done_count += 1
+                if done_count % 100 == 0 or done_count == len(qualified_tickers):
+                    print(f"  --> 取得進捗: {done_count}/{len(qualified_tickers)} 銘柄完了")
+
+        with open(earnings_cache_path, "w", encoding="utf-8") as f:
+            json.dump(earnings_dict, f, ensure_ascii=False, indent=2)
+        print(f"[+] 決算発表予定日キャッシュ保存完了: {earnings_cache_path} ({len(earnings_dict)}/{len(qualified_tickers)} 銘柄で予定日判明)")
+
+    # =========================================================================
+    # PART 6: 上場銘柄マスター(会社名)キャッシュ生成 (UI表示用)
+    # ETF/REITも含む全銘柄が対象。jpx_sector_master.json(株式のみ・セクター
+    # センチメント用)とは別に、UIの会社名表示専用として全銘柄をカバーする。
+    # =========================================================================
+    print("\n" + "=" * 75)
+    print("【6/6】上場銘柄マスター(会社名)キャッシュ生成")
+    print("=" * 75)
+
+    company_master_path = os.path.join(CACHE_DIR, f"company_master_{today_d.strftime('%Y%m%d')}.json")
+    if os.path.exists(company_master_path):
+        print("[*] 上場銘柄マスターキャッシュは本日分が既にあります。スキップ")
+    else:
+        master_date, master_records = fetch_latest_equities_master(session, today_d, rate_limiter)
+        if not master_records:
+            print("[-] 上場銘柄マスターを取得できませんでした。")
+        else:
+            company_dict = {}
+            for rec in master_records:
+                code = str(rec["Code"])
+                ticker = f"{code[:4]}.T"
+                company_dict[ticker] = {
+                    "name": rec.get("CoName", ""),
+                    "name_en": rec.get("CoNameEn", "")
+                }
+            with open(company_master_path, "w", encoding="utf-8") as f:
+                json.dump(company_dict, f, ensure_ascii=False, indent=2)
+            print(f"[+] 上場銘柄マスターキャッシュ保存完了: {company_master_path} ({len(company_dict)} 銘柄, 基準日 {master_date})")
 
     print("\n[+] 全キャッシュ生成パイプラインが正常に完了しました。")
 
