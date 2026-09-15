@@ -256,6 +256,22 @@ def main():
     session.headers.update({"x-api-key": JQUANTS_API_KEY})
     rate_limiter = RateLimiter(max_calls=REQUESTS_PER_MINUTE)
 
+    # 上場銘柄マスターを先に取得し、PART1(スクリーニング・学習ユニバース双方の
+    # 母集団)から普通株式以外(ETF/REIT/外国株等)とグロース市場銘柄を除外する
+    # のに使う。PART6のキャッシュ生成でもこの結果を使い回す。
+    print("[*] 上場銘柄マスターを取得中 (ETF/REIT・グロース市場除外用)...")
+    today_d_for_master = datetime.date.today()
+    master_date, master_records = fetch_latest_equities_master(session, today_d_for_master, rate_limiter)
+    equity_master_map = {rec["Code"]: rec for rec in master_records} if master_records else {}
+
+    def is_eligible_ticker(ticker: str) -> bool:
+        """普通株式(ProdCat=011)かつグロース市場(Mkt=0113)以外のみ対象とする"""
+        code5_candidates = [ticker.replace(".T", "") + "0", ticker.replace(".T", "")]
+        rec = next((equity_master_map[c] for c in code5_candidates if c in equity_master_map), None)
+        if rec is None:
+            return True  # マスターに無い銘柄は判定不能のため従来通り対象に含める
+        return rec.get("ProdCat") == "011" and rec.get("Mkt") != "0113"
+
     # =========================================================================
     # PART 1: 当日スクリーニング ＆ UI用 キャッシュ生成（直近45日バルク取得）
     # =========================================================================
@@ -319,8 +335,11 @@ def main():
         .apply(lambda s: s.tail(5).mean())
     )
 
-    qualified_tickers = latest_turnover_5d[latest_turnover_5d >= MIN_TURNOVER].index.tolist()
-    print(f"[+] 条件合致（売買代金 >= 10億円）: {len(qualified_tickers)} 銘柄抽出")
+    turnover_qualified = latest_turnover_5d[latest_turnover_5d >= MIN_TURNOVER].index.tolist()
+    qualified_tickers = [t for t in turnover_qualified if is_eligible_ticker(t)]
+    excluded_count = len(turnover_qualified) - len(qualified_tickers)
+    print(f"[+] 条件合致（売買代金 >= 10億円）: {len(turnover_qualified)} 銘柄"
+          f" -> ETF/REIT・グロース市場除外後: {len(qualified_tickers)} 銘柄 ({excluded_count} 銘柄除外)")
 
     filtered_df = sub_df[sub_df['ticker'].isin(qualified_tickers)].drop(columns=['Turnover_calc'])
     filtered_df.set_index(['Date', 'ticker'], inplace=True)
@@ -594,7 +613,7 @@ def main():
     if os.path.exists(company_master_path):
         print("[*] 上場銘柄マスターキャッシュは本日分が既にあります。スキップ")
     else:
-        master_date, master_records = fetch_latest_equities_master(session, today_d, rate_limiter)
+        # PART1冒頭で既に取得済みのマスターを使い回す(APIリクエスト節約)
         if not master_records:
             print("[-] 上場銘柄マスターを取得できませんでした。")
         else:
