@@ -76,8 +76,7 @@ def main():
 
     print(f"[*] スキャン対象母集団: {len(tickers)} 銘柄")
     macro_feed = macro_df[macro_cols]
-    m_start = (macro_df.index.min() - datetime.timedelta(days=40)).strftime("%Y-%m-%d")
-    all_prices_df = fetch_all_tickers_data(tickers, m_start)
+    all_prices_df = fetch_all_tickers_data()
 
     candidates = []
     has_multi_tickers = isinstance(all_prices_df.columns, pd.MultiIndex)

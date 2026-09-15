@@ -4,7 +4,6 @@ import glob
 import json
 import datetime
 import pandas as pd
-import yfinance as yf
 
 BASE_DIR = r"F:\stockModel"
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -34,34 +33,18 @@ def load_screener_tickers():
     ]
     return tickers
 
-def fetch_all_tickers_data(tickers, m_start):
+def fetch_all_tickers_data():
+    """build_jquants_cache.py が生成する当日分のJ-Quants株価キャッシュを読み込む"""
     today_str = datetime.date.today().strftime("%Y%m%d")
     cache_file = os.path.join(CACHE_DIR, f"prices_{today_str}.parquet")
 
-    if os.path.exists(cache_file):
-        try:
-            print(f"[*] 本日分の株価ローカルキャッシュを読み込み中 ({cache_file})...")
-            return pd.read_parquet(cache_file)
-        except Exception:
-            pass
-
-    print(f"[*] 全 {len(tickers)} 銘柄の株価データを一括並列ダウンロード中 (threads=True)...")
-    all_df = yf.download(
-        tickers=tickers,
-        start=m_start,
-        interval="1d",
-        auto_adjust=True,   # ★ 株式分割・併合・配当落ちを過去全期間に遡って自動補正
-        group_by="ticker",
-        threads=True,
-        progress=True
-    )
-    if not all_df.empty:
-        try:
-            all_df.to_parquet(cache_file)
-            print(f"[+] 当日株価キャッシュを保存しました: {cache_file}")
-        except Exception as e:
-            print(f"[!] キャッシュ保存スキップ: {e}")
-    return all_df
+    if not os.path.exists(cache_file):
+        raise FileNotFoundError(
+            f"[!] {cache_file} が見つかりません。"
+            f" 先に build_jquants_cache.py を実行して当日分のキャッシュを生成してください。"
+        )
+    print(f"[*] 本日分の株価ローカルキャッシュを読み込み中 ({cache_file})...")
+    return pd.read_parquet(cache_file)
 
 def load_margin_cache():
     now = datetime.datetime.now()
