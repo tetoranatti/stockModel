@@ -38,6 +38,10 @@ function runPythonScript(baseDir, scriptName, onLog) {
 }
 
 async function runFullPipeline(baseDir, onLog) {
+  // 株価・信用残・日経225等のJ-Quantsキャッシュを最新化(run_dynamic_regime_screening_v8.py
+  // が必須で読みに行くため、必ず最初に完了させておく必要がある)
+  await runPythonScript(baseDir, 'build_jquants_cache.py', onLog);
+
   await runPythonScript(baseDir, 'update_daily_features_v6.py', onLog);
 
   if (fs.existsSync(path.join(baseDir, 'parse_flow_signal.py'))) {
@@ -46,15 +50,8 @@ async function runFullPipeline(baseDir, onLog) {
   if (fs.existsSync(path.join(baseDir, 'check_sector_sentiment.py'))) {
     await runPythonScript(baseDir, 'check_sector_sentiment.py', onLog);
   }
-  if (fs.existsSync(path.join(baseDir, 'fetch_margin_kabutan.py'))) {
-    await runPythonScript(baseDir, 'fetch_margin_kabutan.py', onLog);
-  }
 
   await runPythonScript(baseDir, 'run_dynamic_regime_screening_v8.py', onLog);
-
-  if (fs.existsSync(path.join(baseDir, 'fetch_margin_kabutan.py'))) {
-    await runPythonScript(baseDir, 'fetch_margin_kabutan.py', onLog);
-  }
 }
 
 module.exports = { runFullPipeline };
