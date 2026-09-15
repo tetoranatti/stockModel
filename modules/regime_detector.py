@@ -1,33 +1,34 @@
 # modules/regime_detector.py
 import os
 import json
-import datetime
 import pandas as pd
-import yfinance as yf
 
 BASE_DIR = r"F:\stockModel"
 JPX_DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
 FLOW_JSON_PATH = os.path.join(BASE_DIR, "macro_flow_signal.json")
+NK225_UNDERLYING_CACHE_PATH = os.path.join(BASE_DIR, "data", "cache", "train_nk225_underlying.parquet")
 
 def load_macro_environment():
     if not os.path.exists(JPX_DB_PATH):
         raise FileNotFoundError(f"[!] {JPX_DB_PATH} が見つかりません。")
+    if not os.path.exists(NK225_UNDERLYING_CACHE_PATH):
+        raise FileNotFoundError(
+            f"[!] {NK225_UNDERLYING_CACHE_PATH} が見つかりません。"
+            f" 先に build_jquants_cache.py を実行してキャッシュを生成してください。"
+        )
 
     jpx_db = pd.read_csv(JPX_DB_PATH, index_col=0, parse_dates=True)
     jpx_db.index = pd.to_datetime(jpx_db.index).tz_localize(None)
-    start_date = (jpx_db.index.min() - datetime.timedelta(days=20)).strftime("%Y-%m-%d")
 
-    n225 = yf.download("^N225", start=start_date, interval="1d", progress=False)
-    if isinstance(n225.columns, pd.MultiIndex):
-        n225.columns = n225.columns.get_level_values(0)
+    # 学習・バックテストと同じ日経225原証券価格(J-Quantsオプションのunderlying)を使う
+    n225 = pd.read_parquet(NK225_UNDERLYING_CACHE_PATH)
     n225.index = pd.to_datetime(n225.index).tz_localize(None)
 
     # 日経平均ではなく jpx_db のインデックスを主軸にする
     macro_df = pd.DataFrame(index=jpx_db.index)
-    
-    # n225 から Close を取得して左結合（未確定日は直近終値で ffill）
-    macro_df = macro_df.join(n225[['Close']], how='left')
-    macro_df.rename(columns={'Close': 'NK_Close'}, inplace=True)
+
+    # n225 から NK_Close を取得して左結合（未確定日は直近終値で ffill）
+    macro_df = macro_df.join(n225[['NK_Close']], how='left')
     macro_df['NK_Close'] = macro_df['NK_Close'].ffill()
     macro_df['NK_Ret'] = macro_df['NK_Close'].pct_change(fill_method=None).fillna(0.0)
 
