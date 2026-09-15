@@ -103,10 +103,19 @@ def fetch_ticker_jquants(session, code, from_date, to_date, rate_limiter=None):
         "to": to_date.replace("-", "")
     }
     try:
-        if rate_limiter is not None:
-            rate_limiter.acquire()
-        res = session.get(url, params=params, timeout=15)
-        if res.status_code != 200:
+        res = None
+        for attempt in range(4):
+            if rate_limiter is not None:
+                rate_limiter.acquire()
+            res = session.get(url, params=params, timeout=15)
+            if res.status_code == 429:
+                time.sleep(2.0 * (attempt + 1))
+                continue
+            break
+
+        if res is None or res.status_code != 200:
+            if res is not None and res.status_code != 200:
+                print(f"[!] {code} 取得エラー: HTTP {res.status_code}")
             return None
         data = res.json().get("data", [])
         if not data:
