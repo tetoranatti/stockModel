@@ -335,8 +335,7 @@ def train():
     ).to(DEVICE)
 
     criterion = AsymmetricPenaltyLoss(false_buy_penalty=1.15, class_weights=class_weights.to(DEVICE))
-    # 実績のある安定パラメータ
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.00005, weight_decay=3e-2)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0002, weight_decay=3e-2)
 
     best_val_loss = float('inf')
     patience = 7
