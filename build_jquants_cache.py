@@ -3,6 +3,9 @@ import os
 import datetime
 import time
 import json
+import threading
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import pandas as pd
 from dotenv import load_dotenv
@@ -28,6 +31,29 @@ JQUANTS_BASE_URL = "https://api.jquants.com/v2"
 MIN_TURNOVER = 10e8  # 10億円 (v8基準)
 FETCH_DAYS = 45      # 日次スクリーニング用の直近営業日数
 YEARS_BACK = 3       # 学習用データセットの期間 (年)
+
+FETCH_WORKERS = 8          # 並列フェッチのスレッド数
+REQUESTS_PER_MINUTE = 110  # Standardプラン上限(120req/分)に対する安全マージン
+
+class RateLimiter:
+    """複数スレッドで共有し、直近60秒あたりのリクエスト数を上限以内に抑えるトークンバケット風リミッター"""
+    def __init__(self, max_calls, period=60.0):
+        self.max_calls = max_calls
+        self.period = period
+        self.calls = deque()
+        self.lock = threading.Lock()
+
+    def acquire(self):
+        while True:
+            with self.lock:
+                now = time.monotonic()
+                while self.calls and now - self.calls[0] > self.period:
+                    self.calls.popleft()
+                if len(self.calls) < self.max_calls:
+                    self.calls.append(now)
+                    return
+                wait_sec = self.period - (now - self.calls[0])
+            time.sleep(max(wait_sec, 0.01))
 
 def get_recent_business_days(n_days=45):
     """直近の営業日候補（平日）リストを生成"""
@@ -63,7 +89,7 @@ def fetch_daily_all(session, date_str, retry_count=3):
             time.sleep(1.0)
     return []
 
-def fetch_ticker_jquants(session, code, from_date, to_date):
+def fetch_ticker_jquants(session, code, from_date, to_date, rate_limiter=None):
     """J-Quants V2 API から個別銘柄の長期四本値を取得"""
     clean_code = code.replace(".T", "").strip()
     url = f"{JQUANTS_BASE_URL}/equities/bars/daily"
@@ -73,6 +99,8 @@ def fetch_ticker_jquants(session, code, from_date, to_date):
         "to": to_date.replace("-", "")
     }
     try:
+        if rate_limiter is not None:
+            rate_limiter.acquire()
         res = session.get(url, params=params, timeout=15)
         if res.status_code != 200:
             return None
@@ -101,11 +129,13 @@ def fetch_ticker_jquants(session, code, from_date, to_date):
         print(f"[!] {code} 取得エラー: {e}")
         return None
 
-def fetch_nk225_underlying(session, date_str):
+def fetch_nk225_underlying(session, date_str, rate_limiter=None):
     """J-Quants V2 API から日経225オプション四本値を取得し、当日の原証券価格(日経225現物相当)のみ抜き出す"""
     url = f"{JQUANTS_BASE_URL}/derivatives/bars/daily/options/225"
     params = {"date": date_str}
     try:
+        if rate_limiter is not None:
+            rate_limiter.acquire()
         res = session.get(url, params=params, timeout=15)
         if res.status_code != 200:
             return None
@@ -118,6 +148,18 @@ def fetch_nk225_underlying(session, date_str):
     except Exception as e:
         print(f"[!] {date_str} 日経225原証券価格取得エラー: {e}")
         return None
+
+def load_existing_cache(cache_path):
+    """既存キャッシュを読み込み、(DataFrame, 最終日付) を返す。存在しなければ (None, None)"""
+    if not os.path.exists(cache_path):
+        return None, None
+    try:
+        df = pd.read_parquet(cache_path)
+        if df.empty:
+            return None, None
+        return df, pd.to_datetime(df.index.max()).date()
+    except Exception:
+        return None, None
 
 def fetch_index_jquants(session, index_code="0000", from_date=None, to_date=None):
     """J-Quants V2 API からTOPIX等の指数四本値を取得"""
@@ -146,6 +188,7 @@ def fetch_index_jquants(session, index_code="0000", from_date=None, to_date=None
 def main():
     session = requests.Session()
     session.headers.update({"x-api-key": JQUANTS_API_KEY})
+    rate_limiter = RateLimiter(max_calls=REQUESTS_PER_MINUTE)
 
     # =========================================================================
     # PART 1: 当日スクリーニング ＆ UI用 キャッシュ生成（直近45日バルク取得）
@@ -257,72 +300,113 @@ def main():
         universe_tickers = [line.strip() for line in f if line.strip()]
 
     print(f"[*] 学習ユニバース対象: {len(universe_tickers)} 銘柄")
-    end_date = datetime.date.today().strftime("%Y-%m-%d")
-    start_date = (datetime.date.today() - datetime.timedelta(days=365 * YEARS_BACK)).strftime("%Y-%m-%d")
+    today_d = datetime.date.today()
+    end_date = today_d.strftime("%Y-%m-%d")
+    full_start_date = (today_d - datetime.timedelta(days=365 * YEARS_BACK)).strftime("%Y-%m-%d")
 
-    # 1. TOPIX指数の取得・保存
-    print(f"[*] TOPIX指数 (0000) を取得中 ({start_date} ～ {end_date})...")
-    topix_df = fetch_index_jquants(session, index_code="0000", from_date=start_date, to_date=end_date)
-    if topix_df is not None and not topix_df.empty:
-        topix_df.to_parquet(TOPIX_CACHE_PATH)
-        print(f"[+] TOPIX学習用キャッシュ保存完了: {TOPIX_CACHE_PATH}")
+    # 1. TOPIX指数の取得・保存（差分更新: 既存キャッシュの最終日翌日から取得）
+    existing_topix_df, topix_last_date = load_existing_cache(TOPIX_CACHE_PATH)
+    if topix_last_date is not None and topix_last_date >= today_d:
+        print(f"[*] TOPIXキャッシュは既に最新です (最終日: {topix_last_date})。スキップ")
+    else:
+        topix_fetch_start = (topix_last_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d") if topix_last_date else full_start_date
+        print(f"[*] TOPIX指数 (0000) を取得中 ({topix_fetch_start} ～ {end_date})...")
+        new_topix_df = fetch_index_jquants(session, index_code="0000", from_date=topix_fetch_start, to_date=end_date)
+        if new_topix_df is not None and not new_topix_df.empty:
+            topix_df = pd.concat([existing_topix_df, new_topix_df]) if existing_topix_df is not None else new_topix_df
+            topix_df = topix_df[~topix_df.index.duplicated(keep='last')].sort_index()
+            topix_df.to_parquet(TOPIX_CACHE_PATH)
+            print(f"[+] TOPIX学習用キャッシュ保存完了: {TOPIX_CACHE_PATH} ({len(topix_df)} 日分)")
+        else:
+            print("[*] TOPIX: 新規データなし")
     time.sleep(0.55)
 
-    # 2. ユニバース全銘柄の過去3年分を取得
-    print(f"[*] 全 {len(universe_tickers)} 銘柄の過去3年四本値を取得中...")
-    ticker_train_dfs = {}
-    for i, t in enumerate(universe_tickers):
-        df_single = fetch_ticker_jquants(session, t, start_date, end_date)
-        if df_single is not None and not df_single.empty:
-            ticker_train_dfs[t] = df_single
-
-        time.sleep(0.55)  # Standard 120req/min 安全域
-
-        if (i + 1) % 25 == 0 or (i + 1) == len(universe_tickers):
-            print(f"  --> 学習用データ進捗: {i + 1}/{len(universe_tickers)} 銘柄完了")
-
-    if ticker_train_dfs:
-        all_train_df = pd.concat(ticker_train_dfs, axis=1)
-        all_train_df.to_parquet(TRAIN_CACHE_PATH)
-        print(f"[+] 学習用3年分キャッシュ保存完了: {TRAIN_CACHE_PATH}")
+    # 2. ユニバース全銘柄の四本値を取得（差分更新: 既存キャッシュの最終日翌日から取得）
+    existing_train_df, train_last_date = load_existing_cache(TRAIN_CACHE_PATH)
+    if train_last_date is not None and train_last_date >= today_d:
+        print(f"[*] ユニバース四本値キャッシュは既に最新です (最終日: {train_last_date})。スキップ")
     else:
-        print("[-] 学習用データを取得できませんでした。")
+        train_fetch_start = (train_last_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d") if train_last_date else full_start_date
+        print(f"[*] 全 {len(universe_tickers)} 銘柄の四本値を並列取得中 ({train_fetch_start} ～ {end_date}, {FETCH_WORKERS}並列)...")
+        ticker_train_dfs = {}
+        with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
+            futures = {
+                executor.submit(fetch_ticker_jquants, session, t, train_fetch_start, end_date, rate_limiter): t
+                for t in universe_tickers
+            }
+            done_count = 0
+            for future in as_completed(futures):
+                t = futures[future]
+                df_single = future.result()
+                if df_single is not None and not df_single.empty:
+                    ticker_train_dfs[t] = df_single
+
+                done_count += 1
+                if done_count % 25 == 0 or done_count == len(universe_tickers):
+                    print(f"  --> 学習用データ進捗: {done_count}/{len(universe_tickers)} 銘柄完了")
+
+        if ticker_train_dfs:
+            new_train_df = pd.concat(ticker_train_dfs, axis=1)
+            all_train_df = pd.concat([existing_train_df, new_train_df]) if existing_train_df is not None else new_train_df
+            all_train_df = all_train_df[~all_train_df.index.duplicated(keep='last')].sort_index()
+            all_train_df.to_parquet(TRAIN_CACHE_PATH)
+            print(f"[+] 学習用キャッシュ保存完了: {TRAIN_CACHE_PATH} ({len(all_train_df)} 日分)")
+        elif existing_train_df is not None:
+            print("[*] ユニバース四本値: 新規データなし（既存キャッシュを維持）")
+        else:
+            print("[-] 学習用データを取得できませんでした。")
 
     # =========================================================================
     # PART 3: 日経225原証券価格（マクロ特徴量用）キャッシュ生成
     # J-Quantsは日経225現物指数を配信していないため、日経225オプション四本値
     # レスポンスに含まれる UnderPx (原証券価格) を日経225終値の代替として使う
+    # 差分更新: 既存キャッシュの最終日翌日から取得（初回のみ全期間分を取得）
     # =========================================================================
     print("\n" + "=" * 75)
-    print(f"【3/3】日経225原証券価格キャッシュ生成 (過去 {YEARS_BACK} 年分, 1営業日ずつ取得)")
+    print("【3/3】日経225原証券価格キャッシュ生成")
     print("=" * 75)
 
-    business_days = []
-    curr = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
-    end_d = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
-    while curr <= end_d:
-        if curr.weekday() < 5:
-            business_days.append(curr.strftime("%Y%m%d"))
-        curr += datetime.timedelta(days=1)
-
-    print(f"[*] 対象営業日数: {len(business_days)} 日 (概算所要時間: 約{len(business_days) * 0.55 / 60:.1f}分)")
-    nk225_records = []
-    for i, d_str in enumerate(business_days):
-        under_px = fetch_nk225_underlying(session, d_str)
-        if under_px is not None:
-            nk225_records.append({"Date": pd.to_datetime(d_str), "NK_Close": under_px})
-
-        time.sleep(0.55)  # Standard 120req/min 安全域
-
-        if (i + 1) % 100 == 0 or (i + 1) == len(business_days):
-            print(f"  --> 日経225原証券価格 取得進捗: {i + 1}/{len(business_days)} 日完了")
-
-    if nk225_records:
-        nk225_df = pd.DataFrame(nk225_records).set_index("Date").sort_index()
-        nk225_df.to_parquet(NK225_UNDERLYING_CACHE_PATH)
-        print(f"[+] 日経225原証券価格キャッシュ保存完了: {NK225_UNDERLYING_CACHE_PATH} ({len(nk225_df)} 日分)")
+    existing_nk225_df, nk225_last_date = load_existing_cache(NK225_UNDERLYING_CACHE_PATH)
+    if nk225_last_date is not None and nk225_last_date >= today_d:
+        print(f"[*] 日経225原証券価格キャッシュは既に最新です (最終日: {nk225_last_date})。スキップ")
     else:
-        print("[-] 日経225原証券価格を取得できませんでした（Standardプラン契約・APIキーをご確認ください）。")
+        nk225_fetch_start_d = (nk225_last_date + datetime.timedelta(days=1)) if nk225_last_date else datetime.datetime.strptime(full_start_date, "%Y-%m-%d").date()
+
+        business_days = []
+        curr = nk225_fetch_start_d
+        while curr <= today_d:
+            if curr.weekday() < 5:
+                business_days.append(curr.strftime("%Y%m%d"))
+            curr += datetime.timedelta(days=1)
+
+        print(f"[*] 対象営業日数: {len(business_days)} 日 (このAPIは1日1リクエストのため、{FETCH_WORKERS}並列で取得します)")
+        nk225_records = []
+        with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
+            futures = {
+                executor.submit(fetch_nk225_underlying, session, d_str, rate_limiter): d_str
+                for d_str in business_days
+            }
+            done_count = 0
+            for future in as_completed(futures):
+                d_str = futures[future]
+                under_px = future.result()
+                if under_px is not None:
+                    nk225_records.append({"Date": pd.to_datetime(d_str), "NK_Close": under_px})
+
+                done_count += 1
+                if done_count % 50 == 0 or done_count == len(business_days):
+                    print(f"  --> 日経225原証券価格 取得進捗: {done_count}/{len(business_days)} 日完了")
+
+        if nk225_records:
+            new_nk225_df = pd.DataFrame(nk225_records).set_index("Date").sort_index()
+            nk225_df = pd.concat([existing_nk225_df, new_nk225_df]) if existing_nk225_df is not None else new_nk225_df
+            nk225_df = nk225_df[~nk225_df.index.duplicated(keep='last')].sort_index()
+            nk225_df.to_parquet(NK225_UNDERLYING_CACHE_PATH)
+            print(f"[+] 日経225原証券価格キャッシュ保存完了: {NK225_UNDERLYING_CACHE_PATH} ({len(nk225_df)} 日分)")
+        elif existing_nk225_df is not None:
+            print("[*] 日経225原証券価格: 新規データなし（既存キャッシュを維持）")
+        else:
+            print("[-] 日経225原証券価格を取得できませんでした（Standardプラン契約・APIキーをご確認ください）。")
 
     print("\n[+] 全キャッシュ生成パイプラインが正常に完了しました。")
 
