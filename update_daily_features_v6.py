@@ -1,14 +1,11 @@
 import os
 import re
-import time
 import datetime
 import urllib.request
 import unicodedata
 import numpy as np
 import pandas as pd
 import openpyxl
-import requests
-from dotenv import load_dotenv
 
 # 平日祝日の自動判定用（jpholidayが未インストールの場合はフォールバック）
 try:
@@ -23,10 +20,6 @@ WEEKLY_DIR = os.path.join(BASE_DIR, "jpx_weekly_oi")
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
-
-load_dotenv()
-JQUANTS_API_KEY = os.environ.get("JQUANTS_API_KEY")
-JQUANTS_BASE_URL = "https://api.jquants.com/v2"
 
 def is_market_holiday(d: datetime.date) -> bool:
     """土日・日本の祝日・年末年始（12/31〜1/3）を判定"""
@@ -85,50 +78,55 @@ def fetch_latest_weekly_oi(target_date: datetime.date, file_type: str):
 
     return None
 
-# --- 2. J-Quants日経225オプションAPIからの建玉壁計算 ---
-def fetch_op_walls_jquants(target_date: datetime.date, session=None, rate_limiter=None):
-    """J-Quants日経225オプション四本値(市場全体の合計建玉)から、直近限月のコール/プット壁を計算"""
-    if not JQUANTS_API_KEY:
+# --- 2. オプション確定壁パーサー ---
+def parse_op_walls(filepath: str):
+    if not filepath or not os.path.exists(filepath):
         return None, None
-    date_str = target_date.strftime("%Y%m%d")
-    url = f"{JQUANTS_BASE_URL}/derivatives/bars/daily/options/225"
     try:
-        if session is None:
-            session = requests.Session()
-            session.headers.update({"x-api-key": JQUANTS_API_KEY})
+        wb = openpyxl.load_workbook(filepath, data_only=True)
+        ws = wb.active
+        strike_oi = {'call': {}, 'put': {}}
+        p_strike, c_strike = None, None
 
-        res = None
-        for attempt in range(4):
-            if rate_limiter is not None:
-                rate_limiter.acquire()
-            res = session.get(url, params={"date": date_str}, timeout=15)
-            if res.status_code == 429:
-                wait_sec = 2.0 * (attempt + 1)
-                time.sleep(wait_sec)
-                continue
-            break
+        for row in ws.iter_rows(values_only=True):
+            if len(row) > 1 and row[0] == 1 and row[1] is not None:
+                try:
+                    p_strike = float(row[1])
+                except (ValueError, TypeError):
+                    p_strike = None
 
-        if res is None or res.status_code != 200:
-            print(f"  [!] J-Quantsオプション取得エラー: HTTP {res.status_code if res is not None else '?'} ({date_str})")
-            return None, None
-        data = res.json().get("data", [])
-        if not data:
-            return None, None
+            if len(row) > 11 and row[10] == 1 and row[11] is not None:
+                try:
+                    c_strike = float(row[11])
+                except (ValueError, TypeError):
+                    c_strike = None
 
-        df = pd.DataFrame(data)
-        front_month = sorted(df['CM'].unique())[0]
-        front_df = df[df['CM'] == front_month]
+            # プット建玉集計
+            if p_strike and (20000 <= p_strike <= 85000):
+                s = float(row[4]) if len(row) > 4 and isinstance(row[4], (int, float)) else 0.0
+                b = float(row[7]) if len(row) > 7 and isinstance(row[7], (int, float)) else 0.0
+                if (s + b) > 0:
+                    strike_oi['put'][p_strike] = strike_oi['put'].get(p_strike, 0.0) + s + b
 
-        put_df = front_df[front_df['PCDiv'] == '1']
-        call_df = front_df[front_df['PCDiv'] == '2']
-        if put_df.empty or call_df.empty:
-            return None, None
+            # コール建玉集計
+            if c_strike and (20000 <= c_strike <= 85000):
+                s = float(row[14]) if len(row) > 14 and isinstance(row[14], (int, float)) else 0.0
+                b = float(row[17]) if len(row) > 17 and isinstance(row[17], (int, float)) else 0.0
+                if (s + b) > 0:
+                    strike_oi['call'][c_strike] = strike_oi['call'].get(c_strike, 0.0) + s + b
 
-        p_wall = float(put_df.loc[put_df['OI'].idxmax(), 'Strike'])
-        c_wall = float(call_df.loc[call_df['OI'].idxmax(), 'Strike'])
-        return c_wall, p_wall
+        c_wall = max(strike_oi['call'], key=strike_oi['call'].get) if strike_oi['call'] else None
+        p_wall = max(strike_oi['put'], key=strike_oi['put'].get) if strike_oi['put'] else None
+        return (float(c_wall) if c_wall else None, float(p_wall) if p_wall else None)
+
     except Exception as e:
-        print(f"  [!] J-Quantsオプション解析エラー: {e}")
+        print(f"  [!] OP解析エラー: {e}")
+        # 破損ファイルが残った場合に削除して次回再取得可能にする
+        if os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
         return None, None
 
 # --- 3. CTA先物純建玉パーサー（正規化・記号ゆれ完全対応版） ---
@@ -202,24 +200,17 @@ def update_daily():
         df_db = pd.read_csv(DB_PATH, index_col=0, parse_dates=True)
         last_valid = df_db.iloc[-1].to_dict() if len(df_db) > 0 else {}
 
-    # コール/プット壁: J-Quants日経225オプションAPI(市場全体の合計建玉)から計算
-    c_wall, p_wall = fetch_op_walls_jquants(today)
-
-    # CTA先物ネットポジション: J-Quantsに投資部門別建玉の代替がない(J-Quants Pro限定)ため、
-    # 引き続きJPXウェブサイトの週次確定Excelから取得
+    # 最新の週次確定ファイルを探索・取得
+    p_op = fetch_latest_weekly_oi(today, "nk225op")
     p_fut = fetch_latest_weekly_oi(today, "indexfut")
+
+    c_wall, p_wall = parse_op_walls(p_op)
     cta_net = parse_fut_cta(p_fut)
 
-    # 取得できない場合は前営業日値またはデフォルト値を使用(取得元不明を防ぐため明示的に警告)
-    if c_wall is None:
-        c_wall = last_valid.get('call_oi_wall', 40000.0)
-        print(f"  [!] Call壁を取得できなかったため、フォールバック値を使用します: {c_wall:.0f}")
-    if p_wall is None:
-        p_wall = last_valid.get('put_oi_wall', 38000.0)
-        print(f"  [!] Put壁を取得できなかったため、フォールバック値を使用します: {p_wall:.0f}")
-    if cta_net is None:
-        cta_net = last_valid.get('cta_net_futures', 0.0)
-        print(f"  [!] CTA先物を取得できなかったため、フォールバック値を使用します: {cta_net:+.1f}")
+    # 取得できない場合は前営業日値またはデフォルト値を使用
+    c_wall = c_wall if c_wall is not None else last_valid.get('call_oi_wall', 40000.0)
+    p_wall = p_wall if p_wall is not None else last_valid.get('put_oi_wall', 38000.0)
+    cta_net = cta_net if cta_net is not None else last_valid.get('cta_net_futures', 0.0)
     g_flip = (c_wall + p_wall) / 2.0
 
     print(f"  [+] 反映建玉水準: Call壁={c_wall:.0f} / Put壁={p_wall:.0f} / Flip={g_flip:.0f}")
