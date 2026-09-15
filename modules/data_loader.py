@@ -2,7 +2,6 @@
 import os
 import glob
 import json
-import shutil
 import datetime
 import pandas as pd
 import yfinance as yf
@@ -11,7 +10,6 @@ BASE_DIR = r"F:\stockModel"
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
 MARGIN_DIR = os.path.join(DATA_DIR, "margin")
-DOWNLOADS_DIR = os.path.join(os.environ.get("USERPROFILE", ""), "Downloads")
 SCREENER_CSV = os.path.join(BASE_DIR, "screener_result.csv")
 JPX_DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
 SECTOR_SENTIMENT_JSON = os.path.join(DATA_DIR, "sector_sentiment.json")
@@ -19,16 +17,7 @@ SECTOR_MASTER_JSON = os.path.join(DATA_DIR, "jpx_sector_master.json")
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-def sync_latest_screener_csv():
-    pattern = os.path.join(DOWNLOADS_DIR, "*screener*.csv")
-    files = glob.glob(pattern)
-    if files:
-        latest = max(files, key=os.path.getmtime)
-        shutil.copy2(latest, SCREENER_CSV)
-        print(f"[+] 最新スクリーニングCSVを自動同期: {os.path.basename(latest)}")
-
 def load_screener_tickers():
-    sync_latest_screener_csv()
     if not os.path.exists(SCREENER_CSV):
         return []
     try:
