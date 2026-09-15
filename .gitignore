@@ -3,6 +3,6 @@ jpx_raw_year/
 jpx_short_pdf/
 jpx_weekly_oi/
 archive/
-ui/
+ui/node_modules/
 data/
 .env

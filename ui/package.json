@@ -1,0 +1,15 @@
+{
+  "name": "stock-regime-screener",
+  "version": "1.0.0",
+  "description": "JPX Regime Swing Screener UI",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^34.0.0"
+  },
+  "dependencies": {
+    "lightweight-charts": "^5.2.1"
+  }
+}

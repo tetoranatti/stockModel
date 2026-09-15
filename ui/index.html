@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>JPX Swing Screener Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="./node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+
+  <header>
+    <div class="header-left">
+      <h1>📈 JPX スイングコックピット</h1>
+      <div id="macro-regime-badge" class="regime-badge regime-neutral">
+        ● レジーム分析中...
+      </div>
+      <!-- 大口手口フローシグナルバッジ -->
+      <div id="macro-flow-badge" class="regime-badge flow-badge-normal" title="JPX日次先物手口フロー">
+        ⚡ フロー待機中
+      </div>
+    </div>
+
+    <div class="risk-settings">
+      <label>資金
+        <input type="number" id="input-capital" value="3000000" step="100000"> 円
+      </label>
+      <label>リスク
+        <input type="number" id="input-risk-pct" value="0.8" step="0.1" style="width: 45px;"> %
+      </label>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn btn-green" id="btn-run-all">⚡ 全自動更新＆スクリーニング</button>
+      <button class="btn" id="load-btn">CSV再読込</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- 左：テーブル -->
+    <div class="sidebar">
+      <div class="filter-bar">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span id="summary-text" style="color: #38bdf8; font-weight: bold;">待機中</span>
+          <input 
+            type="text" 
+            id="search-input" 
+            placeholder="🔍 検索 (コード / 企業名) [/]" 
+            style="background: #0f172a; border: 1px solid #334155; color: #f8fafc; padding: 3px 8px; border-radius: 4px; font-size: 11px; width: 160px;"
+          >
+          <span id="path-indicator" style="color: #64748b; font-size: 11px;"></span>
+        </div>
+        <span class="shortcut-hint">[↑/↓: 選択 | /: 検索 | C: SBIメモ | V: コード]</span>
+      </div>
+      <div class="table-container" id="table-scroll-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:left;">コード / 企業名</th>
+              <th>株価</th>
+              <th>EVスコア</th>
+              <th>買勝率</th>
+              <th>損切率</th>
+              <th>β</th>
+              <th>出来高比</th>
+              <th style="text-align:center;">判定</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <tr><td colspan="8" style="text-align:center; padding: 40px; color:#64748b;">CSV読込中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 右：チャート＆ロット計算 -->
+    <div class="main-view">
+      <div class="chart-header">
+        <div>
+          <div class="stock-title-wrap">
+            <span class="stock-title" id="chart-ticker-name">銘柄を選択してください</span>
+            <span id="chart-sector-badge" class="badge-sector" style="display: none;"></span>
+            <span id="chart-earnings-badge"></span>
+            <span id="chart-margin-badge" class="badge-margin" style="display: none;"></span>
+          </div>
+          <div class="chart-legend">
+            <span id="chart-meta-info">リストを選択してください</span>
+            <span class="legend-sma25">― 25日SMA</span>
+            <span class="legend-sma75">― 75日SMA</span>
+          </div>
+        </div>
+        <div class="target-indicators" id="target-indicators" style="display: none;">
+          <div class="indicator-box tp-box">利確 (+2ATR): <span id="tp-val">-</span></div>
+          <div class="indicator-box dip-box" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid #0284c7;">
+            押し目 (-0.5ATR): <span id="dip-val">-</span>
+          </div>
+          <div class="indicator-box sl-box">損切 (-1ATR): <span id="sl-val">-</span></div>
+        </div>
+      </div>
+
+      <div class="sizing-card" id="sizing-card">
+        <div class="sizing-metrics">
+          <div class="sizing-item">
+            <span class="sizing-label">1株損切幅 (1ATR)</span>
+            <span class="sizing-val" id="calc-risk-per-share">- 円</span>
+          </div>
+          <div class="sizing-item">
+            <span class="sizing-label">推奨購入株数</span>
+            <span class="sizing-val" id="calc-shares" style="color: #4ade80;">- 株</span>
+          </div>
+          <div class="sizing-item">
+            <span class="sizing-label">想定最大損失額</span>
+            <span class="sizing-val" id="calc-actual-loss" style="color: #f87171;">- 円</span>
+          </div>
+          <div class="sizing-item">
+            <span class="sizing-label">概算約定代金</span>
+            <span class="sizing-val" id="calc-total-cost">- 万円</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 5px;">
+          <button class="btn btn-copy" id="btn-copy-code" title="4桁コードのみコピー (Vキー)">📋 コード (V)</button>
+          <button class="btn btn-copy" id="btn-copy-sbi" title="SBI発注用テキスト一括コピー (Cキー)">📋 SBIメモ (C)</button>
+        </div>
+      </div>
+
+      <div id="chart-container">
+        <div class="loading-overlay" id="loading-overlay">チャートデータ取得中...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="terminal-panel">
+    <div class="terminal-header">
+      <span>EXECUTION LOG</span>
+      <span id="status-indicator" style="color: #94a3b8;">IDLE</span>
+    </div>
+    <div class="terminal-body" id="term-body">システム待機中。</div>
+  </div>
+
+  <!-- 変更前: <script src="renderer.js"></script> -->
+  <script src="src/app.js"></script>
+</body>
+</html>
