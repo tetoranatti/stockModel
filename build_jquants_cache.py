@@ -66,12 +66,14 @@ def get_recent_business_days(n_days=45):
         curr -= datetime.timedelta(days=1)
     return sorted(days)
 
-def fetch_daily_all(session, date_str, retry_count=3):
+def fetch_daily_all(session, date_str, retry_count=3, rate_limiter=None):
     """1日分の全上場銘柄四本値を一括取得 (1リクエスト)"""
     url = f"{JQUANTS_BASE_URL}/equities/bars/daily"
     params = {"date": date_str}
     for attempt in range(retry_count):
         try:
+            if rate_limiter is not None:
+                rate_limiter.acquire()
             res = session.get(url, params=params, timeout=15)
             if res.status_code == 200:
                 data = res.json().get("data", [])
@@ -200,13 +202,20 @@ def main():
     target_days = get_recent_business_days(FETCH_DAYS)
     all_records = []
 
-    print(f"[*] 直近 {len(target_days)} 営業日分の全市場データを取得開始...")
-    for i, d_str in enumerate(target_days):
-        records = fetch_daily_all(session, d_str)
-        if records:
-            all_records.extend(records)
-            print(f"  --> [{i+1}/{len(target_days)}] {d_str}: {len(records)} 銘柄取得完了")
-        time.sleep(0.55)  # Standard 120req/min 安全域
+    print(f"[*] 直近 {len(target_days)} 営業日分の全市場データを{FETCH_WORKERS}並列で取得開始...")
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
+        futures = {
+            executor.submit(fetch_daily_all, session, d_str, 3, rate_limiter): d_str
+            for d_str in target_days
+        }
+        done_count = 0
+        for future in as_completed(futures):
+            d_str = futures[future]
+            records = future.result()
+            if records:
+                all_records.extend(records)
+            done_count += 1
+            print(f"  --> [{done_count}/{len(target_days)}] {d_str}: {len(records)} 銘柄取得完了")
 
     if not all_records:
         print("[-] 日次バルクデータが取得できませんでした。")
