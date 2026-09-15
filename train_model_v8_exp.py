@@ -3,7 +3,6 @@ import random
 import datetime
 import numpy as np
 import pandas as pd
-import yfinance as yf
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -15,6 +14,9 @@ BASE_DIR = r"F:\stockModel"
 DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
 UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
 MODEL_SAVE_PATH = os.path.join(BASE_DIR, "swing_model_v8_timeout_refined.pt")
+CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
+UNIVERSE_BARS_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
+NK225_UNDERLYING_CACHE_PATH = os.path.join(CACHE_DIR, "train_nk225_underlying.parquet")
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -143,19 +145,21 @@ class UniverseDataset(Dataset):
 def load_macro_slim5(db_path=DB_PATH):
     if not os.path.exists(db_path):
         raise FileNotFoundError(f"[!] {db_path} が見つかりません。")
+    if not os.path.exists(NK225_UNDERLYING_CACHE_PATH):
+        raise FileNotFoundError(
+            f"[!] {NK225_UNDERLYING_CACHE_PATH} が見つかりません。"
+            f" 先に build_jquants_cache.py を実行してキャッシュを生成してください。"
+        )
 
     jpx_db = pd.read_csv(db_path, index_col=0, parse_dates=True)
     jpx_db.index = pd.to_datetime(jpx_db.index).tz_localize(None)
-    start_date = (jpx_db.index.min() - datetime.timedelta(days=20)).strftime("%Y-%m-%d")
 
-    n225 = yf.download("^N225", start=start_date, interval="1d", progress=False)
-    if isinstance(n225.columns, pd.MultiIndex):
-        n225.columns = n225.columns.get_level_values(0)
+    n225 = pd.read_parquet(NK225_UNDERLYING_CACHE_PATH)
     n225.index = pd.to_datetime(n225.index).tz_localize(None)
 
     macro_df = pd.DataFrame(index=n225.index)
-    macro_df['NK_Close'] = n225['Close']
-    macro_df['NK_Ret'] = n225['Close'].pct_change(fill_method=None).fillna(0.0)
+    macro_df['NK_Close'] = n225['NK_Close']
+    macro_df['NK_Ret'] = macro_df['NK_Close'].pct_change(fill_method=None).fillna(0.0)
 
     macro_df = macro_df.join(jpx_db, how='inner').ffill().fillna(0.0)
 
@@ -181,15 +185,22 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
     tr_x_s, tr_x_m, tr_y = [], [], []
     va_x_s, va_x_m, va_y = [], [], []
 
+    if not os.path.exists(UNIVERSE_BARS_CACHE_PATH):
+        raise FileNotFoundError(
+            f"[!] {UNIVERSE_BARS_CACHE_PATH} が見つかりません。"
+            f" 先に build_jquants_cache.py を実行してキャッシュを生成してください。"
+        )
+    universe_bars = pd.read_parquet(UNIVERSE_BARS_CACHE_PATH)
+    universe_bars.index = pd.to_datetime(universe_bars.index).tz_localize(None)
+
     print(f"[*] 全 {len(tickers)} 銘柄からデータセット構築中 (TIME_OUT 閾値反映)...")
-    m_start = (macro_df.index.min() - datetime.timedelta(days=40)).strftime("%Y-%m-%d")
+    m_start = macro_df.index.min() - datetime.timedelta(days=40)
 
     for i, t in enumerate(tickers):
         try:
-            df = yf.download(t, start=m_start, interval="1d", auto_adjust=True, progress=False)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df.index = pd.to_datetime(df.index).tz_localize(None)
+            if t not in universe_bars.columns.get_level_values(0):
+                continue
+            df = universe_bars[t].loc[universe_bars.index >= m_start].copy()
             df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
 
             if len(df) < seq_len + holding_period + 25 or (df['Volume'] == 0).all():

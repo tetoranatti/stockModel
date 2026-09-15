@@ -13,6 +13,7 @@ CACHE_DIR = os.path.join(DATA_DIR, "cache")
 UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
 TRAIN_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
 TOPIX_CACHE_PATH = os.path.join(CACHE_DIR, "train_topix_bars.parquet")
+NK225_UNDERLYING_CACHE_PATH = os.path.join(CACHE_DIR, "train_nk225_underlying.parquet")
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 load_dotenv()
@@ -98,6 +99,24 @@ def fetch_ticker_jquants(session, code, from_date, to_date):
         return df[available_cols].rename(columns=col_map).astype(float)
     except Exception as e:
         print(f"[!] {code} 取得エラー: {e}")
+        return None
+
+def fetch_nk225_underlying(session, date_str):
+    """J-Quants V2 API から日経225オプション四本値を取得し、当日の原証券価格(日経225現物相当)のみ抜き出す"""
+    url = f"{JQUANTS_BASE_URL}/derivatives/bars/daily/options/225"
+    params = {"date": date_str}
+    try:
+        res = session.get(url, params=params, timeout=15)
+        if res.status_code != 200:
+            return None
+        data = res.json().get("data", [])
+        for rec in data:
+            under_px = rec.get("UnderPx")
+            if under_px is not None:
+                return float(under_px)
+        return None
+    except Exception as e:
+        print(f"[!] {date_str} 日経225原証券価格取得エラー: {e}")
         return None
 
 def fetch_index_jquants(session, index_code="0000", from_date=None, to_date=None):
@@ -268,6 +287,42 @@ def main():
         print(f"[+] 学習用3年分キャッシュ保存完了: {TRAIN_CACHE_PATH}")
     else:
         print("[-] 学習用データを取得できませんでした。")
+
+    # =========================================================================
+    # PART 3: 日経225原証券価格（マクロ特徴量用）キャッシュ生成
+    # J-Quantsは日経225現物指数を配信していないため、日経225オプション四本値
+    # レスポンスに含まれる UnderPx (原証券価格) を日経225終値の代替として使う
+    # =========================================================================
+    print("\n" + "=" * 75)
+    print(f"【3/3】日経225原証券価格キャッシュ生成 (過去 {YEARS_BACK} 年分, 1営業日ずつ取得)")
+    print("=" * 75)
+
+    business_days = []
+    curr = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+    end_d = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
+    while curr <= end_d:
+        if curr.weekday() < 5:
+            business_days.append(curr.strftime("%Y%m%d"))
+        curr += datetime.timedelta(days=1)
+
+    print(f"[*] 対象営業日数: {len(business_days)} 日 (概算所要時間: 約{len(business_days) * 0.55 / 60:.1f}分)")
+    nk225_records = []
+    for i, d_str in enumerate(business_days):
+        under_px = fetch_nk225_underlying(session, d_str)
+        if under_px is not None:
+            nk225_records.append({"Date": pd.to_datetime(d_str), "NK_Close": under_px})
+
+        time.sleep(0.55)  # Standard 120req/min 安全域
+
+        if (i + 1) % 100 == 0 or (i + 1) == len(business_days):
+            print(f"  --> 日経225原証券価格 取得進捗: {i + 1}/{len(business_days)} 日完了")
+
+    if nk225_records:
+        nk225_df = pd.DataFrame(nk225_records).set_index("Date").sort_index()
+        nk225_df.to_parquet(NK225_UNDERLYING_CACHE_PATH)
+        print(f"[+] 日経225原証券価格キャッシュ保存完了: {NK225_UNDERLYING_CACHE_PATH} ({len(nk225_df)} 日分)")
+    else:
+        print("[-] 日経225原証券価格を取得できませんでした（Standardプラン契約・APIキーをご確認ください）。")
 
     print("\n[+] 全キャッシュ生成パイプラインが正常に完了しました。")
 
