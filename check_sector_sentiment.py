@@ -252,16 +252,26 @@ def main():
     print("\n[*] Gemini API にセクター一括評価をリクエスト中...")
     eval_results = evaluate_sectors_with_gemini(sector_news)
 
+    if not eval_results:
+        print("[!] Gemini APIによるセクター評価が全モデル・全リトライで失敗しました。"
+              "全セクターをデフォルト値(中立)で保存します。sector_sentiment.jsonの中立値は"
+              "実際の市況ではなく解析失敗によるものである点に注意してください。")
+
     final_output = {}
     for sec_key, conf in SECTOR_CONFIGS.items():
-        sec_eval = eval_results.get(sec_key, {
-            "score": 0.0,
-            "shock_detected": False,
-            "category": "GENERAL",
-            "duration": "NONE",
-            "summary": "判定不能またはデータなし",
-            "action_advice": "通常"
-        })
+        if sec_key not in eval_results:
+            if eval_results:
+                print(f"  [!] {conf['name']} の評価がGemini応答に含まれていません。デフォルト値(中立)を使用します。")
+            sec_eval = {
+                "score": 0.0,
+                "shock_detected": False,
+                "category": "GENERAL",
+                "duration": "NONE",
+                "summary": "判定不能またはデータなし",
+                "action_advice": "通常"
+            }
+        else:
+            sec_eval = eval_results[sec_key]
         sec_eval["name"] = conf["name"]
         sec_eval["tickers"] = conf["tickers"]
         final_output[sec_key] = sec_eval
