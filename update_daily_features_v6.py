@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import datetime
 import urllib.request
 import unicodedata
@@ -85,18 +86,30 @@ def fetch_latest_weekly_oi(target_date: datetime.date, file_type: str):
     return None
 
 # --- 2. J-Quants日経225オプションAPIからの建玉壁計算 ---
-def fetch_op_walls_jquants(target_date: datetime.date):
+def fetch_op_walls_jquants(target_date: datetime.date, session=None, rate_limiter=None):
     """J-Quants日経225オプション四本値(市場全体の合計建玉)から、直近限月のコール/プット壁を計算"""
     if not JQUANTS_API_KEY:
         return None, None
     date_str = target_date.strftime("%Y%m%d")
     url = f"{JQUANTS_BASE_URL}/derivatives/bars/daily/options/225"
     try:
-        session = requests.Session()
-        session.headers.update({"x-api-key": JQUANTS_API_KEY})
-        res = session.get(url, params={"date": date_str}, timeout=15)
-        if res.status_code != 200:
-            print(f"  [!] J-Quantsオプション取得エラー: HTTP {res.status_code}")
+        if session is None:
+            session = requests.Session()
+            session.headers.update({"x-api-key": JQUANTS_API_KEY})
+
+        res = None
+        for attempt in range(4):
+            if rate_limiter is not None:
+                rate_limiter.acquire()
+            res = session.get(url, params={"date": date_str}, timeout=15)
+            if res.status_code == 429:
+                wait_sec = 2.0 * (attempt + 1)
+                time.sleep(wait_sec)
+                continue
+            break
+
+        if res is None or res.status_code != 200:
+            print(f"  [!] J-Quantsオプション取得エラー: HTTP {res.status_code if res is not None else '?'} ({date_str})")
             return None, None
         data = res.json().get("data", [])
         if not data:
