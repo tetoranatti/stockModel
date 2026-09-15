@@ -73,9 +73,11 @@ def detect_macro_regime(macro_df):
         except Exception:
             pass
 
-    # v8 (勝率62%, PF 3.33) の分布に合わせた閾値設定
-    strong_buy_th = 0.365 if is_bear_regime else 0.360   # ★ 特選ライン (PF 3.33)
-    buy_threshold = 0.360 if is_bear_regime else 0.355   # 標準採用ライン (PF 2.35)
+    # 閾値は過去のモデルで手動チューニングされたまま引き継がれている値であり、
+    # 現行モデルでの再検証はできていない(run_event_driven_backtest_v8_exp.pyの
+    # 閾値0.34〜0.345で勝率52〜53%, PF1.8〜2.2程度が現行モデルの実測値)
+    strong_buy_th = 0.365 if is_bear_regime else 0.360   # ★ 特選ライン
+    buy_threshold = 0.360 if is_bear_regime else 0.355   # 標準採用ライン
     watch_threshold = 0.350 if is_bear_regime else 0.345 # 監視ライン
 
     return {

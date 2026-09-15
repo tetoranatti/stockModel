@@ -28,7 +28,8 @@ from modules.risk_manager import (
 )
 
 BASE_DIR = r"F:\stockModel"
-# ★ v8 正式モデル重み（勝率62.1%, PF 3.33）
+# ★ v8 正式モデル重み（バックテスト閾値0.34〜0.345で勝率52〜53%, PF1.8〜2.2程度。
+#    閾値0.35以上はサンプル数が少なく参考値。数値はrun_event_driven_backtest_v8_exp.py参照）
 MODEL_WEIGHTS = os.path.join(BASE_DIR, "swing_model_v8_timeout_refined.pt")
 OUTPUT_CSV = os.path.join(BASE_DIR, "final_regime_screened_v8.csv")
 OUTPUT_JSON = os.path.join(BASE_DIR, "data", "screening_results_v8.json")
