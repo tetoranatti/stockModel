@@ -73,12 +73,14 @@ def detect_macro_regime(macro_df):
         except Exception:
             pass
 
-    # 閾値は過去のモデルで手動チューニングされたまま引き継がれている値であり、
-    # 現行モデルでの再検証はできていない(run_event_driven_backtest_v8_exp.pyの
-    # 閾値0.34〜0.345で勝率52〜53%, PF1.8〜2.2程度が現行モデルの実測値)
-    strong_buy_th = 0.365 if is_bear_regime else 0.360   # ★ 特選ライン
-    buy_threshold = 0.360 if is_bear_regime else 0.355   # 標準採用ライン
-    watch_threshold = 0.350 if is_bear_regime else 0.345 # 監視ライン
+    # v8アンサンブル(ランキング損失+横断面正規化、seeds=42-46)再学習に伴い、
+    # p_win分布が旧CE分類モデル(0.18〜0.44)から大きくシフトしたため閾値を再スキャン
+    # (run_event_driven_backtest_v8_exp.pyの実測値、全体p_win分布: Min=0.138 Median=0.365 Max=0.661):
+    #   th=0.535 n=1078 勝率46.8% PF1.65 / th=0.498 n=2459 勝率42.1% PF1.36 / th=0.424 n=6946 勝率39.3% PF1.14
+    # bear/bullの相対差(旧版+0.005)は未検証のため据え置きで比例スケールしただけの暫定値。
+    strong_buy_th = 0.545 if is_bear_regime else 0.535   # ★ 特選ライン
+    buy_threshold = 0.505 if is_bear_regime else 0.495   # 標準採用ライン
+    watch_threshold = 0.430 if is_bear_regime else 0.420 # 監視ライン
 
     return {
         "is_bear": is_bear_regime,

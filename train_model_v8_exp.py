@@ -8,17 +8,27 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 from modules.model_arch import DualStream_GRU_PreLN_Transformer
+from modules.macro_features import load_macro_slim5
+from modules.stock_features import compute_stock_features
+from modules.cross_sectional_features import (
+    apply_log_transform,
+    compute_cross_sectional_stats,
+    valid_cross_section_dates,
+    normalize_cross_sectional,
+)
 
 # =============================================================================
 # 設定・パス・乱数シード固定
 # =============================================================================
 BASE_DIR = r"F:\stockModel"
-DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
 UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
-MODEL_SAVE_PATH = os.path.join(BASE_DIR, "swing_model_v8_timeout_refined.pt")
+MODEL_SAVE_PATH_TEMPLATE = os.path.join(BASE_DIR, "swing_model_v8_ensemble_seed{seed}.pt")
+ENSEMBLE_SEEDS = [42, 43, 44, 45, 46]
 CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 UNIVERSE_BARS_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
-NK225_UNDERLYING_CACHE_PATH = os.path.join(CACHE_DIR, "train_nk225_underlying.parquet")
+
+HIDDEN_DIM = 20
+MIN_CROSS_SECTION = 20
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -34,26 +44,34 @@ set_seed(42)
 # =============================================================================
 # 1. 損失関数・データセット
 # =============================================================================
-class AsymmetricPenaltyLoss(nn.Module):
-    def __init__(self, false_buy_penalty: float = 1.15, class_weights=None):
-        super().__init__()
-        self.penalty = false_buy_penalty
-        self.ce = nn.CrossEntropyLoss(weight=class_weights, reduction='none')
+class PairwiseRankingLoss(nn.Module):
+    """RankNet型のpairwiseランキング損失。
+    離散クラス(0/1/2)を経由せず、連続値ret_pctが大きいサンプルほど
+    score(=p_win - p_stop)が高くなるよう直接学習する。CE損失とは異なり
+    top-Kランキングの質を直接の最適化対象にできる。
+    モデル出力は従来通り3クラスsoftmaxのままなので、p_win=probs[:,2] /
+    p_stop=probs[:,0] を読む推論側(model_inference.py等)は無改造で使える。
 
-    def forward(self, logits, targets):
-        base_loss = self.ce(logits, targets)
+    注: スコアを生ロジット差(logits[:,2]-logits[:,0])にする案を3シードで
+    検証したが、K=1000以降で明確に悪化した(3シード平均PF: K=1000で1.49→1.25、
+    K=2000で1.42→1.20、K=4000で1.27→1.15)ため、ソフトマックス経由に戻している。
+    """
+    def forward(self, logits, ret_pct):
         probs = torch.softmax(logits, dim=-1)
-        is_actual_loss = (targets == 0)
-        p_profit = probs[:, 2]
-        multiplier = torch.ones_like(base_loss)
-        multiplier[is_actual_loss] += (self.penalty - 1.0) * p_profit[is_actual_loss]
-        return (base_loss * multiplier).mean()
+        score = probs[:, 2] - probs[:, 0]
+        diff_score = score.unsqueeze(1) - score.unsqueeze(0)
+        diff_ret = ret_pct.unsqueeze(1) - ret_pct.unsqueeze(0)
+        sign = torch.sign(diff_ret)
+        mask = sign != 0
+        if mask.sum() == 0:
+            return diff_score.sum() * 0.0
+        return torch.nn.functional.softplus(-sign[mask] * diff_score[mask]).mean()
 
 class UniverseDataset(Dataset):
     def __init__(self, X_stock, X_macro, y):
         self.X_stock = torch.tensor(X_stock, dtype=torch.float32)
         self.X_macro = torch.tensor(X_macro, dtype=torch.float32)
-        self.y = torch.tensor(y, dtype=torch.long)
+        self.y = torch.tensor(y, dtype=torch.float32)
 
     def __len__(self):
         return len(self.y)
@@ -62,50 +80,40 @@ class UniverseDataset(Dataset):
         return self.X_stock[idx], self.X_macro[idx], self.y[idx]
 
 # =============================================================================
-# 2. マクロ環境データ
+# 3. データセット構築 (連続値ret_pctラベリング、横断面正規化、ランキング損失用)
 # =============================================================================
-def load_macro_slim5(db_path=DB_PATH):
-    if not os.path.exists(db_path):
-        raise FileNotFoundError(f"[!] {db_path} が見つかりません。")
-    if not os.path.exists(NK225_UNDERLYING_CACHE_PATH):
-        raise FileNotFoundError(
-            f"[!] {NK225_UNDERLYING_CACHE_PATH} が見つかりません。"
-            f" 先に build_jquants_cache.py を実行してキャッシュを生成してください。"
-        )
+def _simulate_ret_pct(closes, highs, lows, atrs, holding_period):
+    n_bars = len(closes)
+    targets = np.full(n_bars, np.nan)
+    for idx in range(n_bars - holding_period):
+        entry_p = closes[idx]
+        upper_p = entry_p + (2.0 * atrs[idx])
+        lower_p = entry_p - (1.0 * atrs[idx])
+        exit_p = None
 
-    jpx_db = pd.read_csv(db_path, index_col=0, parse_dates=True)
-    jpx_db.index = pd.to_datetime(jpx_db.index).tz_localize(None)
+        # 期間内に利確/損切りラインに到達したらそこで手仕舞い
+        for h in range(1, holding_period + 1):
+            if lows[idx + h] <= lower_p and highs[idx + h] >= upper_p:
+                exit_p = lower_p  # 同一足で両方到達した場合は損切り優先(保守的)
+                break
+            elif highs[idx + h] >= upper_p:
+                exit_p = upper_p
+                break
+            elif lows[idx + h] <= lower_p:
+                exit_p = lower_p
+                break
 
-    n225 = pd.read_parquet(NK225_UNDERLYING_CACHE_PATH)
-    n225.index = pd.to_datetime(n225.index).tz_localize(None)
+        # タイムアウト: holding_period経過時点の終値で手仕舞い
+        if exit_p is None:
+            exit_p = closes[idx + holding_period]
 
-    macro_df = pd.DataFrame(index=n225.index)
-    macro_df['NK_Close'] = n225['NK_Close']
-    macro_df['NK_Ret'] = macro_df['NK_Close'].pct_change(fill_method=None).fillna(0.0)
+        targets[idx] = (exit_p - entry_p) / entry_p
+    return targets
 
-    macro_df = macro_df.join(jpx_db, how='inner').ffill().fillna(0.0)
 
-    pin_strike = (macro_df['call_oi_wall'] + macro_df['put_oi_wall']) / 2.0
-    macro_df['pin_dist_ratio'] = ((macro_df['NK_Close'] - pin_strike) / (pin_strike + 1e-5)) / 0.02
-    macro_df['wall_spread'] = ((macro_df['call_oi_wall'] - macro_df['put_oi_wall']).abs() / (pin_strike + 1e-5)) / 0.02
-
-    cta_mean = macro_df['cta_net_futures'].rolling(60, min_periods=10).mean()
-    cta_std = macro_df['cta_net_futures'].rolling(60, min_periods=10).std() + 1e-5
-    macro_df['cta_net_norm'] = ((macro_df['cta_net_futures'] - cta_mean) / cta_std).fillna(0.0)
-    macro_df['cta_momentum'] = (macro_df['cta_net_futures'] - macro_df['cta_net_futures'].shift(5)).fillna(0.0) / 5000.0
-    macro_df['nk_ret_norm'] = macro_df['NK_Ret'] / 0.015
-
-    return macro_df
-
-# =============================================================================
-# 3. データセット構築 (TIME_OUT ret_pct 反映版ラベリング)
-# =============================================================================
 def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10):
     stock_cols = ['stock_ret_1d', 'stock_ret_5d', 'atr_ratio', 'rolling_beta', 'vol_ratio_5d']
     macro_cols = ['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentum', 'nk_ret_norm']
-
-    tr_x_s, tr_x_m, tr_y = [], [], []
-    va_x_s, va_x_m, va_y = [], [], []
 
     if not os.path.exists(UNIVERSE_BARS_CACHE_PATH):
         raise FileNotFoundError(
@@ -114,96 +122,69 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
         )
     universe_bars = pd.read_parquet(UNIVERSE_BARS_CACHE_PATH)
     universe_bars.index = pd.to_datetime(universe_bars.index).tz_localize(None)
+    m_start = macro_df.index.min() - datetime.timedelta(days=150)  # rolling_beta(90日窓)分の余裕を確保
 
-    print(f"[*] 全 {len(tickers)} 銘柄からデータセット構築中 (TIME_OUT 閾値反映)...")
-    m_start = macro_df.index.min() - datetime.timedelta(days=40)
-
+    # --- 1パス目: 銘柄ごとの生特徴量(ログ変換込み)を計算 ---
+    print(f"[*] 全 {len(tickers)} 銘柄の特徴量を計算中...")
+    per_ticker_df = {}
     for i, t in enumerate(tickers):
         try:
             if t not in universe_bars.columns.get_level_values(0):
                 continue
             df = universe_bars[t].loc[universe_bars.index >= m_start].copy()
             df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
-
-            if len(df) < seq_len + holding_period + 25 or (df['Volume'] == 0).all():
+            if len(df) < seq_len + holding_period + 95 or (df['Volume'] == 0).all():  # +95 = rolling_beta(90日窓)+余裕
                 continue
 
-            df['stock_ret_1d'] = df['Close'].pct_change(1, fill_method=None).fillna(0.0)
-            df['stock_ret_5d'] = df['Close'].pct_change(5, fill_method=None).fillna(0.0)
-            vol_5d = df['Volume'].rolling(5).mean()
-            df['vol_ratio_5d'] = (df['Volume'] / (vol_5d + 1e-7)).fillna(1.0)
-
-            hl = df['High'] - df['Low']
-            h_cp = (df['High'] - df['Close'].shift(1)).abs()
-            l_cp = (df['Low'] - df['Close'].shift(1)).abs()
-            tr = pd.concat([hl, h_cp, l_cp], axis=1).max(axis=1)
-            atr = tr.rolling(14).mean()
-            df['ATR'] = atr
-            df['atr_ratio'] = (atr / (df['Close'] + 1e-7)).fillna(0.0)
-
             aligned_nk = macro_df['NK_Ret'].reindex(df.index).fillna(0.0)
-            cov = df['stock_ret_1d'].rolling(20).cov(aligned_nk)
-            var = aligned_nk.rolling(20).var()
-            df['rolling_beta'] = (cov / (var + 1e-7)).fillna(1.0)
-
+            df = compute_stock_features(df, aligned_nk)
             df = df.join(macro_df[macro_cols], how='inner')
             df = df.dropna(subset=['ATR', 'rolling_beta'] + macro_cols)
             if len(df) < seq_len + holding_period + 10:
                 continue
 
-            closes = df['Close'].values
-            highs = df['High'].values
-            lows = df['Low'].values
-            atrs = df['ATR'].values
-            n_bars = len(df)
+            df = apply_log_transform(df)
+            per_ticker_df[t] = df
+        except Exception:
+            continue
+        if (i + 1) % 50 == 0 or (i + 1) == len(tickers):
+            print(f"  --> {i + 1}/{len(tickers)} 銘柄 完了")
 
-            targets = np.full(n_bars, np.nan)
-            for idx in range(n_bars - holding_period):
-                entry_p = closes[idx]
-                upper_p = entry_p + (2.0 * atrs[idx])
-                lower_p = entry_p - (1.0 * atrs[idx])
-                outcome = None
-                
-                # 1. 期間内の利確/損切り判定
-                for h in range(1, holding_period + 1):
-                    if lows[idx + h] <= lower_p and highs[idx + h] >= upper_p:
-                        outcome = 0
-                        break
-                    elif highs[idx + h] >= upper_p:
-                        outcome = 2
-                        break
-                    elif lows[idx + h] <= lower_p:
-                        outcome = 0
-                        break
-                
-                # 2. ★ タイムアウト時の再判定ロジック
-                if outcome is None:
-                    exit_p = closes[idx + holding_period]
-                    time_out_ret = (exit_p - entry_p) / entry_p
-                    if time_out_ret >= 0.005:      # +0.5% 以上 -> 利確 (クラス 2)
-                        outcome = 2
-                    elif time_out_ret <= -0.005:   # -0.5% 以下 -> 損切り (クラス 0)
-                        outcome = 0
-                    else:
-                        outcome = 1                # -0.5% 〜 +0.5% -> 中立 (クラス 1)
-                        
-                targets[idx] = outcome
+    # --- 横断面(日付×特徴量)統計を計算 ---
+    print("[*] 横断面統計(同日の全銘柄基準)を計算中...")
+    cross_mean, cross_std = compute_cross_sectional_stats(per_ticker_df, stock_cols)
+    valid_dates = valid_cross_section_dates(per_ticker_df, stock_cols, MIN_CROSS_SECTION)
+    print(f"[+] 横断面統計が有効な日数: {len(valid_dates)}")
 
-            df['Target'] = targets
-            df = df.dropna(subset=['Target'])
+    # --- 2パス目: 横断面正規化・ラベル生成・ウィンドウ構築 ---
+    tr_x_s, tr_x_m, tr_y = [], [], []
+    va_x_s, va_x_m, va_y = [], [], []
 
-            vals_s = df[stock_cols].values
+    for i, (t, df) in enumerate(per_ticker_df.items()):
+        try:
+            df = df.loc[df.index.isin(valid_dates)].copy()
+            if len(df) < seq_len + holding_period + 10:
+                continue
+
+            norm_s = normalize_cross_sectional(df, cross_mean, cross_std, stock_cols)
+
+            closes, highs, lows, atrs = df['Close'].values, df['High'].values, df['Low'].values, df['ATR'].values
+            targets = _simulate_ret_pct(closes, highs, lows, atrs, holding_period)
+
+            vals_s_norm = norm_s.values
             vals_m = df[macro_cols].values
-            vals_y = df['Target'].values.astype(int)
 
             n_samples = len(df)
             split_idx = int(n_samples * 0.75)
 
             for idx in range(seq_len - 1, n_samples):
-                w_s = vals_s[idx - seq_len + 1 : idx + 1].copy()
-                w_m = vals_m[idx - seq_len + 1 : idx + 1].copy()
-                w_s = (w_s - w_s.mean(axis=0)) / (w_s.std(axis=0) + 1e-7)
-                target = vals_y[idx]
+                if np.isnan(targets[idx]):
+                    continue
+                w_s = vals_s_norm[idx - seq_len + 1: idx + 1].copy()
+                if np.isnan(w_s).any():
+                    continue
+                w_m = vals_m[idx - seq_len + 1: idx + 1].copy()
+                target = targets[idx]
 
                 if idx < split_idx:
                     tr_x_s.append(w_s)
@@ -216,8 +197,8 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
         except Exception:
             continue
 
-        if (i + 1) % 50 == 0 or (i + 1) == len(tickers):
-            print(f"  --> {i + 1}/{len(tickers)} 銘柄 完了")
+        if (i + 1) % 50 == 0 or (i + 1) == len(per_ticker_df):
+            print(f"  --> {i + 1}/{len(per_ticker_df)} 銘柄 完了")
 
     return (np.array(tr_x_s), np.array(tr_x_m), np.array(tr_y)), \
            (np.array(va_x_s), np.array(va_x_m), np.array(va_y)), \
@@ -239,24 +220,33 @@ def train():
     va_x_s, va_x_m, va_y = val_data
 
     print(f"[+] データ構築完了: Train = {len(tr_y)}, Val = {len(va_y)}")
-    
-    # クラス内訳を表示
-    for c in range(3):
-        print(f"  - クラス {c}: Train={np.sum(tr_y==c)} ({np.mean(tr_y==c)*100:.1f}%) | Val={np.sum(va_y==c)} ({np.mean(va_y==c)*100:.1f}%)")
+    print(f"  - ret_pct分布: Train mean={tr_y.mean():.4f} std={tr_y.std():.4f} | "
+          f"Val mean={va_y.mean():.4f} std={va_y.std():.4f}")
+
+    # 単一シードだと運の良し悪しでPFが大きく振れる(複数シード検証で確認済み)ため、
+    # 複数シードで学習してアンサンブル(予測平均)として本番運用する。
+    for seed in ENSEMBLE_SEEDS:
+        print(f"\n[*] [v8 アンサンブル seed={seed}] 学習開始...")
+        train_one_seed(seed, tr_x_s, tr_x_m, tr_y, va_x_s, va_x_m, va_y, s_cols, m_cols)
+
+
+def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, va_x_s, va_x_m, va_y, s_cols, m_cols):
+    set_seed(seed)
+    save_path = MODEL_SAVE_PATH_TEMPLATE.format(seed=seed)
 
     train_loader = DataLoader(UniverseDataset(tr_x_s, tr_x_m, tr_y), batch_size=128, shuffle=True, pin_memory=True)
     val_loader = DataLoader(UniverseDataset(va_x_s, va_x_m, va_y), batch_size=256, shuffle=False, pin_memory=True)
 
-    class_counts = np.bincount(tr_y)
-    weights = len(tr_y) / (len(class_counts) * class_counts + 1e-5)
-    class_weights = torch.tensor(weights, dtype=torch.float32)
-
     model = DualStream_GRU_PreLN_Transformer(
         stock_dim=len(s_cols), macro_dim=len(m_cols),
-        hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2
+        hidden_dim=HIDDEN_DIM, num_heads=1, num_classes=3, dropout=0.2
     ).to(DEVICE)
 
-    criterion = AsymmetricPenaltyLoss(false_buy_penalty=1.15, class_weights=class_weights.to(DEVICE))
+    criterion = PairwiseRankingLoss()
+    # lr=5e-05を試したが、真のアンサンブル(予測平均)バックテストで最上位帯
+    # (n=461)のPFが0.94まで悪化する退行が判明したため0.0002に差し戻し。
+    # (個別シードのtop-K評価だけでは見抜けなかった問題。要: 本番相当のアンサンブル
+    # バックテストでの検証を今後も徹底する)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.0002, weight_decay=3e-2)
 
     best_val_loss = float('inf')
@@ -264,10 +254,8 @@ def train():
     patience_cnt = 0
     epochs = 30
 
-    print("\n[*] [v8 TIME_OUT改訂版] 学習開始...")
     for epoch in range(1, epochs + 1):
         model.train()
-        total_tr_loss = 0.0
         for b_xs, b_xm, b_y in train_loader:
             b_xs, b_xm, b_y = b_xs.to(DEVICE, non_blocking=True), b_xm.to(DEVICE, non_blocking=True), b_y.to(DEVICE, non_blocking=True)
             optimizer.zero_grad()
@@ -275,19 +263,18 @@ def train():
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            total_tr_loss += loss.item() * len(b_y)
-
-        train_loss = total_tr_loss / len(tr_y)
 
         model.eval()
         total_va_loss = 0.0
+        n_val_batches = 0
         with torch.no_grad():
             for b_xs, b_xm, b_y in val_loader:
                 b_xs, b_xm, b_y = b_xs.to(DEVICE, non_blocking=True), b_xm.to(DEVICE, non_blocking=True), b_y.to(DEVICE, non_blocking=True)
                 loss = criterion(model(b_xs, b_xm), b_y)
-                total_va_loss += loss.item() * len(b_y)
+                total_va_loss += loss.item()
+                n_val_batches += 1
 
-        val_loss = total_va_loss / len(va_y)
+        val_loss = total_va_loss / n_val_batches
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -296,20 +283,21 @@ def train():
                 'model_state_dict': model.state_dict(),
                 'stock_cols': s_cols,
                 'macro_cols': m_cols,
-                'hidden_dim': 20,
+                'hidden_dim': HIDDEN_DIM,
                 'num_heads': 1,
                 'dropout': 0.2,
-                'val_loss': best_val_loss
-            }, MODEL_SAVE_PATH)
-            print(f"  Epoch [{epoch:02d}/{epochs:02d}] - Train: {train_loss:.4f} | Val: {val_loss:.4f}  --> [Best Val Loss 更新 ★]")
+                'val_loss': best_val_loss,
+                'seed': seed,
+            }, save_path)
+            print(f"  Epoch [{epoch:02d}/{epochs:02d}] - Val: {val_loss:.4f}  --> [Best Val Loss 更新 ★]")
         else:
             patience_cnt += 1
-            print(f"  Epoch [{epoch:02d}/{epochs:02d}] - Train: {train_loss:.4f} | Val: {val_loss:.4f}  (Patience: {patience_cnt}/{patience})")
+            print(f"  Epoch [{epoch:02d}/{epochs:02d}] - Val: {val_loss:.4f}  (Patience: {patience_cnt}/{patience})")
             if patience_cnt >= patience:
                 print(f"[*] Early Stopping 発動 (Epoch {epoch})")
                 break
 
-    print(f"\n[+] 重み保存完了: {MODEL_SAVE_PATH}")
+    print(f"[+] 重み保存完了: {save_path} (best_val_loss={best_val_loss:.4f})")
 
 if __name__ == "__main__":
     train()

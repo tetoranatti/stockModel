@@ -26,13 +26,44 @@ def load_trained_model(weights_path):
     model.eval()
     return model, stock_cols, macro_cols
 
+def load_trained_models_ensemble(weights_paths):
+    """複数シードのチェックポイントを読み込み、モデルのリストを返す。
+    全メンバーがstock_cols/macro_colsを共有している前提(学習時のstock_cols構成が同じ)。"""
+    models = []
+    stock_cols = macro_cols = None
+    for path in weights_paths:
+        model, s_cols, m_cols = load_trained_model(path)
+        if stock_cols is None:
+            stock_cols, macro_cols = s_cols, m_cols
+        elif s_cols != stock_cols or m_cols != macro_cols:
+            raise ValueError(f"[!] アンサンブルメンバー間でstock_cols/macro_colsが不一致: {path}")
+        models.append(model)
+    return models, stock_cols, macro_cols
+
 def predict_probabilities(model, w_s, w_m):
-    w_s_norm = (w_s - w_s.mean(axis=0)) / (w_s.std(axis=0) + 1e-7)
-    t_s = torch.tensor(w_s_norm, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+    """w_s は呼び出し側で正規化済み(横断面正規化)であることを前提とする。
+    このモジュール内では正規化を行わない(横断面統計はuniverse全体の文脈が
+    必要なため、単一銘柄しか見ないこの関数では計算できない)。"""
+    t_s = torch.tensor(w_s, dtype=torch.float32).unsqueeze(0).to(DEVICE)
     t_m = torch.tensor(w_m, dtype=torch.float32).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
         probs = torch.softmax(model(t_s, t_m), dim=-1).squeeze(0).cpu().numpy()
     p_stop_raw, _, p_win_raw = float(probs[0]), float(probs[1]), float(probs[2])
+    ev_raw = round(2.0 * p_win_raw - 1.0 * p_stop_raw, 3)
+    return p_win_raw, p_stop_raw, ev_raw
+
+def predict_probabilities_ensemble(models, w_s, w_m):
+    """アンサンブル全メンバーのsoftmax確率を平均してp_win/p_stopを算出する。
+    w_s は呼び出し側で正規化済み(横断面正規化)であることを前提とする。"""
+    t_s = torch.tensor(w_s, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+    t_m = torch.tensor(w_m, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+    probs_sum = None
+    with torch.no_grad():
+        for model in models:
+            probs = torch.softmax(model(t_s, t_m), dim=-1).squeeze(0).cpu().numpy()
+            probs_sum = probs if probs_sum is None else probs_sum + probs
+    probs_avg = probs_sum / len(models)
+    p_stop_raw, _, p_win_raw = float(probs_avg[0]), float(probs_avg[1]), float(probs_avg[2])
     ev_raw = round(2.0 * p_win_raw - 1.0 * p_stop_raw, 3)
     return p_win_raw, p_stop_raw, ev_raw
 

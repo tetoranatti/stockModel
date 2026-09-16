@@ -16,8 +16,8 @@ from modules.data_loader import (
 from modules.sector_matcher import get_ticker_sector_sentiment
 from modules.regime_detector import load_macro_environment, detect_macro_regime
 from modules.model_inference import (
-    load_trained_model,
-    predict_probabilities,
+    load_trained_models_ensemble,
+    predict_probabilities_ensemble,
     compute_supply_demand_factor,
     apply_odds_adjustment
 )
@@ -26,16 +26,26 @@ from modules.risk_manager import (
     evaluate_screening_gate,
     calculate_target_stop_levels
 )
+from modules.stock_features import compute_stock_features
+from modules.cross_sectional_features import (
+    apply_log_transform,
+    compute_cross_sectional_stats,
+    valid_cross_section_dates,
+    normalize_cross_sectional,
+)
 
 BASE_DIR = r"F:\stockModel"
-# ★ v8 正式モデル重み（バックテスト閾値0.34〜0.345で勝率52〜53%, PF1.8〜2.2程度。
-#    閾値0.35以上はサンプル数が少なく参考値。数値はrun_event_driven_backtest_v8_exp.py参照）
-MODEL_WEIGHTS = os.path.join(BASE_DIR, "swing_model_v8_timeout_refined.pt")
+# ★ v8 アンサンブルモデル(ランキング損失+横断面正規化)。旧モデルの閾値
+#    (勝率52〜53%, PF1.8〜2.2程度)はp_win分布が異なるため参考にならない。
+#    最新の閾値表はrun_event_driven_backtest_v8_exp.pyの実行結果を参照。
+ENSEMBLE_SEEDS = [42, 43, 44, 45, 46]
+MODEL_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"swing_model_v8_ensemble_seed{s}.pt") for s in ENSEMBLE_SEEDS]
 OUTPUT_CSV = os.path.join(BASE_DIR, "final_regime_screened_v8.csv")
 OUTPUT_JSON = os.path.join(BASE_DIR, "data", "screening_results_v8.json")
 
 MIN_TURNOVER = 10e8
 SEQ_LEN = 10
+MIN_CROSS_SECTION = 20
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -50,12 +60,14 @@ def main():
     print("【v8スイングモデル 高速一括スクリーニング (Pre-LN Transformer + 大口手口統合版)】")
     print("=" * 95)
 
-    if not os.path.exists(MODEL_WEIGHTS):
-        print(f"[!] モデル重みが見つかりません: {MODEL_WEIGHTS}")
+    missing = [p for p in MODEL_WEIGHTS_LIST if not os.path.exists(p)]
+    if missing:
+        print(f"[!] モデル重みが見つかりません: {missing}")
         return
 
-    # modules/model_inference.py 経由で v8 モデルを自動読み込み
-    model, stock_cols, macro_cols = load_trained_model(MODEL_WEIGHTS)
+    # modules/model_inference.py 経由で v8 アンサンブルモデルを自動読み込み
+    models, stock_cols, macro_cols = load_trained_models_ensemble(MODEL_WEIGHTS_LIST)
+    print(f"[*] アンサンブル {len(models)} モデルを読み込みました (seeds={ENSEMBLE_SEEDS})")
     macro_df = load_macro_environment()
 
     regime = detect_macro_regime(macro_df)
@@ -79,11 +91,13 @@ def main():
     macro_feed = macro_df[macro_cols]
     all_prices_df = fetch_all_tickers_data()
 
-    candidates = []
     has_multi_tickers = isinstance(all_prices_df.columns, pd.MultiIndex)
-    print(f"[*] メモリ上で特徴量算出 & GPU推論を開始...")
+    print(f"[*] メモリ上で特徴量算出中...")
 
-    for i, t in enumerate(tickers):
+    # --- 1パス目: 銘柄ごとの生特徴量(ログ変換込み)を計算 ---
+    per_ticker_df = {}
+    turnover_by_ticker = {}
+    for t in tickers:
         try:
             if has_multi_tickers:
                 if t not in all_prices_df.columns.levels[0]:
@@ -95,50 +109,63 @@ def main():
             df.index = pd.to_datetime(df.index).tz_localize(None)
             df = df.dropna(subset=['Close', 'High', 'Low', 'Volume'])
 
-            if len(df) < SEQ_LEN + 20 or (df['Volume'] == 0).all():
+            if len(df) < SEQ_LEN + 95 or (df['Volume'] == 0).all():  # +95 = rolling_beta(90日窓)+余裕
                 continue
 
             turnover_5d = (df['Close'] * df['Volume']).rolling(5).mean().iloc[-1]
             if turnover_5d < MIN_TURNOVER:
                 continue
 
-            df['stock_ret_1d'] = df['Close'].pct_change(1, fill_method=None).fillna(0.0)
-            df['stock_ret_5d'] = df['Close'].pct_change(5, fill_method=None).fillna(0.0)
-            vol_5d = df['Volume'].rolling(5).mean()
-            df['vol_ratio_5d'] = (df['Volume'] / (vol_5d + 1e-7)).fillna(1.0)
-
-            hl = df['High'] - df['Low']
-            h_cp = (df['High'] - df['Close'].shift(1)).abs()
-            l_cp = (df['Low'] - df['Close'].shift(1)).abs()
-            tr = pd.concat([hl, h_cp, l_cp], axis=1).max(axis=1)
-            atr = tr.rolling(14).mean()
-            df['ATR'] = atr
-            df['atr_ratio'] = (atr / (df['Close'] + 1e-7)).fillna(0.0)
-
             aligned_nk = macro_df['NK_Ret'].reindex(df.index).fillna(0.0)
-            cov = df['stock_ret_1d'].rolling(20).cov(aligned_nk)
-            var = aligned_nk.rolling(20).var()
-            df['rolling_beta'] = (cov / (var + 1e-7)).fillna(1.0)
+            df = compute_stock_features(df, aligned_nk)
 
             df = df.join(macro_feed, how='left')
             df[macro_cols] = df[macro_cols].ffill()
             df = df.dropna(subset=['ATR', 'rolling_beta'] + macro_cols)
-            
+
             if len(df) < SEQ_LEN:
                 continue
 
-            w_s = df[stock_cols].values[-SEQ_LEN:].copy()
-            w_m = df[macro_cols].values[-SEQ_LEN:].copy()
+            per_ticker_df[t] = df
+            turnover_by_ticker[t] = turnover_5d
+        except Exception:
+            continue
 
-            # v8 Transformerモデルによる確率推論
-            p_win_raw, p_stop_raw, ev_raw = predict_probabilities(model, w_s, w_m)
+    # --- 横断面統計(同日の全銘柄基準) ---
+    print(f"[*] 横断面統計(同日の全銘柄基準)を計算中... 対象{len(per_ticker_df)}銘柄")
+    per_ticker_log = {t: apply_log_transform(df) for t, df in per_ticker_df.items()}
+    cross_mean, cross_std = compute_cross_sectional_stats(per_ticker_log, stock_cols)
+    valid_dates = valid_cross_section_dates(per_ticker_log, stock_cols, MIN_CROSS_SECTION)
 
-            curr_close = float(df['Close'].iloc[-1])
-            curr_open = float(df['Open'].iloc[-1])
-            curr_atr = float(df['ATR'].iloc[-1])
-            beta = float(df['rolling_beta'].iloc[-1])
-            vol_ratio = float(df['vol_ratio_5d'].iloc[-1])
-            ret_1d = float(df['stock_ret_1d'].iloc[-1])
+    candidates = []
+    print(f"[*] アンサンブル推論を開始...")
+
+    for i, t in enumerate(per_ticker_df.keys()):
+        try:
+            df = per_ticker_df[t]
+            df_log = per_ticker_log[t].loc[per_ticker_log[t].index.isin(valid_dates)]
+            if len(df_log) < SEQ_LEN:
+                continue
+
+            turnover_5d = turnover_by_ticker[t]
+            norm_s = normalize_cross_sectional(df_log, cross_mean, cross_std, stock_cols)
+            w_s = norm_s.values[-SEQ_LEN:].copy()
+            if np.isnan(w_s).any():
+                continue
+            w_m = df.loc[df_log.index, macro_cols].values[-SEQ_LEN:].copy()
+
+            # v8 アンサンブルモデルによる確率推論(予測平均)
+            p_win_raw, p_stop_raw, ev_raw = predict_probabilities_ensemble(models, w_s, w_m)
+
+            # 表示・ゲート判定には正規化前の生の値を使う(解釈性のため)
+            latest_date = df_log.index[-1]
+            df_latest = df.loc[latest_date]
+            curr_close = float(df_latest['Close'])
+            curr_open = float(df_latest['Open'])
+            curr_atr = float(df_latest['ATR'])
+            beta = float(df_latest['rolling_beta'])
+            vol_ratio = float(df_latest['vol_ratio_5d'])
+            ret_1d = float(df_latest['stock_ret_1d'])
             is_bear_candle = curr_close < curr_open
 
             # 信用需給補正
@@ -217,8 +244,8 @@ def main():
         except Exception:
             continue
 
-        if (i + 1) % 50 == 0 or (i + 1) == len(tickers):
-            print(f"  --> {i + 1}/{len(tickers)} 銘柄 完了")
+        if (i + 1) % 50 == 0 or (i + 1) == len(per_ticker_df):
+            print(f"  --> {i + 1}/{len(per_ticker_df)} 銘柄 完了")
 
     res_df = pd.DataFrame(candidates)
     if res_df.empty:
