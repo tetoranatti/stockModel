@@ -23,6 +23,7 @@ MODEL_PATHS = [os.path.join(BASE_DIR, f"swing_model_v8_ensemble_seed{s}.pt") for
 CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 UNIVERSE_BARS_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
 MIN_CROSS_SECTION = 20
+MAX_CONCURRENT_POSITIONS = 20  # 資金曲線シミュレーション用の同時保有上限(均等配分)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -34,6 +35,40 @@ def set_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
 
 set_seed(42)
+
+def simulate_equity_curve(sub, max_concurrent=MAX_CONCURRENT_POSITIONS):
+    """選定トレードを時系列順に処理し、同時保有上限max_concurrentで資金を均等配分した
+    エクイティカーブを返す。上限を超える新規シグナルは資金枠が空くまで見送る(現実的な
+    資金制約を簡易再現)。トレード間の重複を考慮しない単純合算のPF/勝率とは異なり、
+    実際の運用に近い資金推移とドローダウンを見るための補助指標。"""
+    events = []
+    for tid, row in enumerate(sub.itertuples(index=False)):
+        events.append((row.date, 1, tid, row.ret_pct))       # entry: 同日ならexitの後
+        events.append((row.exit_date, 0, tid, row.ret_pct))  # exit: 同日ならentryより先に処理し枠を空ける
+    events.sort(key=lambda e: (e[0], e[1]))
+
+    equity = 1.0
+    open_slots = {}
+    equity_curve = [equity]
+    for _, kind, tid, ret_pct in events:
+        if kind == 0:  # exit
+            size = open_slots.pop(tid, None)
+            if size is not None:
+                equity += size * ret_pct
+                equity_curve.append(equity)
+        else:  # entry
+            if len(open_slots) < max_concurrent:
+                open_slots[tid] = equity / max_concurrent
+    return equity_curve
+
+def compute_max_drawdown(equity_curve):
+    peak = -float('inf')
+    max_dd = 0.0
+    for eq in equity_curve:
+        peak = max(peak, eq)
+        if peak > 0:
+            max_dd = min(max_dd, (eq - peak) / peak)
+    return max_dd
 
 def run_backtest():
     print("=" * 85)
@@ -160,6 +195,7 @@ def run_backtest():
                 cached_records.append({
                     'ticker': t,
                     'date': df.index[idx],
+                    'exit_date': df.index[idx + h_days],
                     'p_win': p_win,
                     'p_stop': p_stop,
                     'ret_pct': ret_pct,
@@ -179,17 +215,19 @@ def run_backtest():
 
     print(f"\n[★] 推論完了: 総サンプル数 = {len(df_all)}")
     print(f"  --> p_win 分布: Min={df_all['p_win'].min():.3f} | Median={df_all['p_win'].median():.3f} | Max={df_all['p_win'].max():.3f}")
+    print(f"  --> p_stop分布: Min={df_all['p_stop'].min():.3f} | Median={df_all['p_stop'].median():.3f} | Max={df_all['p_stop'].max():.3f}")
 
-    print("\n" + "=" * 85)
-    print(f"{'買確信度 (th)':<12} | {'件数':<6} | {'勝率 (%)':<8} | {'利確到達率':<10} | {'損切率':<8} | {'損益比':<6} | {'PF':<6}")
-    print("=" * 85)
+    print("\n" + "=" * 100)
+    print(f"{'買確信度 (th)':<12} | {'件数':<6} | {'勝率 (%)':<8} | {'利確到達率':<10} | {'損切率':<8} | {'損益比':<6} | {'PF':<6} | {'MaxDD':<7}")
+    print(f"  (MaxDD: 同時保有上限{MAX_CONCURRENT_POSITIONS}銘柄・均等配分の資金曲線シミュレーションでの最大ドローダウン)")
+    print("=" * 100)
 
     p_lo, p_hi = df_all['p_win'].quantile(0.02), df_all['p_win'].quantile(0.98)
     test_ths = np.linspace(p_lo, p_hi, 12)
     for th in test_ths:
         sub = df_all[(df_all['p_win'] >= th) & (df_all['p_win'] > df_all['p_stop'])].copy()
         if len(sub) == 0:
-            print(f"{th:<12.3f} | {0:<6} | {'-':<8} | {'-':<10} | {'-':<8} | {'-':<6} | {'-':<6}")
+            print(f"{th:<12.3f} | {0:<6} | {'-':<8} | {'-':<10} | {'-':<8} | {'-':<6} | {'-':<6} | {'-':<7}")
             continue
 
         wins, losses = sub[sub['ret_pct'] > 0], sub[sub['ret_pct'] < 0]
@@ -202,9 +240,52 @@ def run_backtest():
         rr = avg_w / avg_l if avg_l > 0 else 0.0
         pf = wins['ret_pct'].sum() / abs(losses['ret_pct'].sum()) if len(losses) > 0 and losses['ret_pct'].sum() != 0 else float('inf')
 
-        print(f"{th:<12.3f} | {len(sub):<6d} | {win_rate:<8.1f} | {tp_rate:<10.1f}% | {sl_rate:<8.1f}% | {rr:<6.2f} | {pf:<6.2f}")
+        equity_curve = simulate_equity_curve(sub)
+        max_dd = compute_max_drawdown(equity_curve)
 
-    print("=" * 85)
+        print(f"{th:<12.3f} | {len(sub):<6d} | {win_rate:<8.1f} | {tp_rate:<10.1f}% | {sl_rate:<8.1f}% | {rr:<6.2f} | {pf:<6.2f} | {max_dd*100:<6.1f}%")
+
+    print("=" * 100)
+
+    for th_label, th in [("strong_buy(0.700)", 0.700), ("buy(0.590)", 0.590), ("watch(0.470)", 0.470)]:
+        print_monthly_breakdown(df_all, th, th_label)
+
+    print(f"\n{'='*100}")
+    print("【p_stop 閾値スキャン(risk_manager.pyのヘッジ判定 p_stop>=0.500 再検証用)】")
+    print(f"  条件: p_stop >= th かつ p_stop > p_win のサブセットの実際の平均リターン")
+    print("=" * 100)
+    print(f"{'p_stop th':<12} | {'件数':<6} | {'勝率 (%)':<8} | {'平均ret_pct':<12} | {'損切率':<8}")
+    print("-" * 60)
+    ps_lo, ps_hi = df_all['p_stop'].quantile(0.50), df_all['p_stop'].quantile(0.99)
+    for th in np.linspace(ps_lo, ps_hi, 10):
+        sub = df_all[(df_all['p_stop'] >= th) & (df_all['p_stop'] > df_all['p_win'])].copy()
+        if len(sub) == 0:
+            print(f"{th:<12.3f} | {0:<6} | {'-':<8} | {'-':<12} | {'-':<8}")
+            continue
+        win_rate = (sub['ret_pct'] > 0).mean() * 100.0
+        sl_rate = sub['exit_reason'].str.startswith('STOP_LOSS').mean() * 100.0
+        print(f"{th:<12.3f} | {len(sub):<6d} | {win_rate:<8.1f} | {sub['ret_pct'].mean():<12.4f} | {sl_rate:<8.1f}%")
+    print("=" * 100)
+
+def print_monthly_breakdown(df_all, th, label):
+    """本番閾値ごとに、月別PF・MaxDDを算出する(月ごとに資金を1.0にリセットして
+    その月の資金曲線を単独シミュレーション。月をまたぐ複利効果は含まない、
+    月単位でのパフォーマンス安定性を見るための簡易指標)。"""
+    sub = df_all[(df_all['p_win'] >= th) & (df_all['p_win'] > df_all['p_stop'])].copy()
+    if sub.empty:
+        print(f"\n[月別内訳: {label}] 該当サンプルなし")
+        return
+    sub['month'] = sub['date'].dt.to_period('M')
+
+    print(f"\n[月別内訳: {label}, 総件数={len(sub)}]")
+    print(f"{'年月':<10} | {'件数':<6} | {'勝率 (%)':<8} | {'PF':<6} | {'MaxDD':<7}")
+    print("-" * 50)
+    for month, g in sub.groupby('month'):
+        wins, losses = g[g['ret_pct'] > 0], g[g['ret_pct'] < 0]
+        win_rate = len(wins) / len(g) * 100.0
+        pf = wins['ret_pct'].sum() / abs(losses['ret_pct'].sum()) if len(losses) > 0 and losses['ret_pct'].sum() != 0 else float('inf')
+        max_dd = compute_max_drawdown(simulate_equity_curve(g))
+        print(f"{str(month):<10} | {len(g):<6d} | {win_rate:<8.1f} | {pf:<6.2f} | {max_dd*100:<6.1f}%")
 
 if __name__ == "__main__":
     run_backtest()

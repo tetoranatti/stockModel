@@ -73,14 +73,16 @@ def detect_macro_regime(macro_df):
         except Exception:
             pass
 
-    # v8アンサンブル(ランキング損失+横断面正規化、seeds=42-46)再学習に伴い、
-    # p_win分布が旧CE分類モデル(0.18〜0.44)から大きくシフトしたため閾値を再スキャン
-    # (run_event_driven_backtest_v8_exp.pyの実測値、全体p_win分布: Min=0.138 Median=0.365 Max=0.661):
-    #   th=0.535 n=1078 勝率46.8% PF1.65 / th=0.498 n=2459 勝率42.1% PF1.36 / th=0.424 n=6946 勝率39.3% PF1.14
-    # bear/bullの相対差(旧版+0.005)は未検証のため据え置きで比例スケールしただけの暫定値。
-    strong_buy_th = 0.545 if is_bear_regime else 0.535   # ★ 特選ライン
-    buy_threshold = 0.505 if is_bear_regime else 0.495   # 標準採用ライン
-    watch_threshold = 0.430 if is_bear_regime else 0.420 # 監視ライン
+    # v8アンサンブル(9特徴量+near-pairランキング損失+横断面正規化、seeds=42-46)再学習に伴い、
+    # p_win分布が前版(0.138〜0.661)から大きくシフトしたため閾値を再スキャン
+    # (run_event_driven_backtest_v8_exp.pyの実測値、全体p_win分布: Min=0.041 Median=0.256 Max=0.933):
+    #   th=0.712 n=461  勝率61.2% PF4.08 MaxDD-1.6% (★特選)
+    #   th=0.591 n=1527 勝率48.8% PF2.16 MaxDD-7.8% (標準採用)
+    #   th=0.471 n=3661 勝率43.1% PF1.55 MaxDD-9.4% (監視)
+    # bear/bullの相対差(旧版+0.01前後)は未検証のため据え置きで比例スケールしただけの暫定値。
+    strong_buy_th = 0.715 if is_bear_regime else 0.700   # ★ 特選ライン
+    buy_threshold = 0.605 if is_bear_regime else 0.590   # 標準採用ライン
+    watch_threshold = 0.485 if is_bear_regime else 0.470 # 監視ライン
 
     return {
         "is_bear": is_bear_regime,

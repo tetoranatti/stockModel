@@ -5,11 +5,11 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Sampler
 
 from modules.model_arch import DualStream_GRU_PreLN_Transformer
 from modules.macro_features import load_macro_slim5
-from modules.stock_features import compute_stock_features
+from modules.stock_features import compute_stock_features, STOCK_FEATURE_COLS
 from modules.cross_sectional_features import (
     apply_log_transform,
     compute_cross_sectional_stats,
@@ -29,6 +29,7 @@ UNIVERSE_BARS_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet"
 
 HIDDEN_DIM = 20
 MIN_CROSS_SECTION = 20
+MAX_PAIR_GAP = 20  # ペアワイズ損失で比較する同一銘柄内サンプルの最大営業日差
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -55,6 +56,14 @@ class PairwiseRankingLoss(nn.Module):
     注: スコアを生ロジット差(logits[:,2]-logits[:,0])にする案を3シードで
     検証したが、K=1000以降で明確に悪化した(3シード平均PF: K=1000で1.49→1.25、
     K=2000で1.42→1.20、K=4000で1.27→1.15)ため、ソフトマックス経由に戻している。
+    ロジットへのLayerNorm追加も試したが、num_classes=3という低次元では
+    モデルが定数出力に潰れてしまい(PF全K帯で0)明確に悪化するため不採用。
+
+    ペア範囲: 全ペア(銘柄混在・日付混在)で比較する版から、同一銘柄内かつ
+    近傍日(MAX_PAIR_GAP日以内)のペアだけに絞る版(NearPairRankingLoss)に
+    切り替えた。5シードの真のアンサンブル(予測平均)バックテストで
+    全K帯で明確に改善(K=1000: PF 1.91→2.41、K=4000: 1.24→1.52)したため。
+    異なる日をまたぐペアは市況差(レジーム)のノイズを含みやすいと考えられる。
     """
     def forward(self, logits, ret_pct):
         probs = torch.softmax(logits, dim=-1)
@@ -67,17 +76,64 @@ class PairwiseRankingLoss(nn.Module):
             return diff_score.sum() * 0.0
         return torch.nn.functional.softplus(-sign[mask] * diff_score[mask]).mean()
 
+class NearPairRankingLoss(nn.Module):
+    """PairwiseRankingLossと同じsoftmaxスコアだが、ペアを同一銘柄内かつ
+    tidx(サンプル位置=営業日インデックス)の差がmax_gap以内のものだけに限定する。"""
+    def __init__(self, max_gap=MAX_PAIR_GAP):
+        super().__init__()
+        self.max_gap = max_gap
+
+    def forward(self, logits, ret_pct, tidx):
+        probs = torch.softmax(logits, dim=-1)
+        score = probs[:, 2] - probs[:, 0]
+        diff_score = score.unsqueeze(1) - score.unsqueeze(0)
+        diff_ret = ret_pct.unsqueeze(1) - ret_pct.unsqueeze(0)
+        sign = torch.sign(diff_ret)
+        gap = (tidx.unsqueeze(1) - tidx.unsqueeze(0)).abs()
+        mask = (sign != 0) & (gap > 0) & (gap <= self.max_gap)
+        if mask.sum() == 0:
+            return diff_score.sum() * 0.0
+        return torch.nn.functional.softplus(-sign[mask] * diff_score[mask]).mean()
+
 class UniverseDataset(Dataset):
-    def __init__(self, X_stock, X_macro, y):
+    def __init__(self, X_stock, X_macro, y, tid, tidx):
         self.X_stock = torch.tensor(X_stock, dtype=torch.float32)
         self.X_macro = torch.tensor(X_macro, dtype=torch.float32)
         self.y = torch.tensor(y, dtype=torch.float32)
+        self.tid = torch.tensor(tid, dtype=torch.long)
+        self.tidx = torch.tensor(tidx, dtype=torch.long)
 
     def __len__(self):
         return len(self.y)
 
     def __getitem__(self, idx):
-        return self.X_stock[idx], self.X_macro[idx], self.y[idx]
+        return self.X_stock[idx], self.X_macro[idx], self.y[idx], self.tid[idx], self.tidx[idx]
+
+class SameTickerBatchSampler(Sampler):
+    """バッチを「同一銘柄の連続した期間」だけで構成するサンプラー。
+    NearPairRankingLossのペア制約(同一銘柄・近傍日)を満たすバッチを作る。"""
+    def __init__(self, tid_array, batch_size, shuffle=True):
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        groups = {}
+        for i, t in enumerate(tid_array):
+            groups.setdefault(int(t), []).append(i)
+        self._batches = []
+        for t, idxs in groups.items():
+            for start in range(0, len(idxs), batch_size):
+                chunk = idxs[start:start + batch_size]
+                if len(chunk) >= 4:
+                    self._batches.append(chunk)
+
+    def __iter__(self):
+        batches = self._batches
+        if self.shuffle:
+            batches = batches.copy()
+            random.shuffle(batches)
+        return iter(batches)
+
+    def __len__(self):
+        return len(self._batches)
 
 # =============================================================================
 # 3. データセット構築 (連続値ret_pctラベリング、横断面正規化、ランキング損失用)
@@ -112,7 +168,7 @@ def _simulate_ret_pct(closes, highs, lows, atrs, holding_period):
 
 
 def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10):
-    stock_cols = ['stock_ret_1d', 'stock_ret_5d', 'atr_ratio', 'rolling_beta', 'vol_ratio_5d']
+    stock_cols = STOCK_FEATURE_COLS
     macro_cols = ['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentum', 'nk_ret_norm']
 
     if not os.path.exists(UNIVERSE_BARS_CACHE_PATH):
@@ -157,8 +213,9 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
     print(f"[+] 横断面統計が有効な日数: {len(valid_dates)}")
 
     # --- 2パス目: 横断面正規化・ラベル生成・ウィンドウ構築 ---
-    tr_x_s, tr_x_m, tr_y = [], [], []
-    va_x_s, va_x_m, va_y = [], [], []
+    # tid/tidxはNearPairRankingLoss用(同一銘柄・近傍日ペア制約の判定に使う)
+    tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx = [], [], [], [], []
+    va_x_s, va_x_m, va_y, va_tid, va_tidx = [], [], [], [], []
 
     for i, (t, df) in enumerate(per_ticker_df.items()):
         try:
@@ -190,18 +247,22 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
                     tr_x_s.append(w_s)
                     tr_x_m.append(w_m)
                     tr_y.append(target)
+                    tr_tid.append(i)
+                    tr_tidx.append(idx)
                 else:
                     va_x_s.append(w_s)
                     va_x_m.append(w_m)
                     va_y.append(target)
+                    va_tid.append(i)
+                    va_tidx.append(idx)
         except Exception:
             continue
 
         if (i + 1) % 50 == 0 or (i + 1) == len(per_ticker_df):
             print(f"  --> {i + 1}/{len(per_ticker_df)} 銘柄 完了")
 
-    return (np.array(tr_x_s), np.array(tr_x_m), np.array(tr_y)), \
-           (np.array(va_x_s), np.array(va_x_m), np.array(va_y)), \
+    return (np.array(tr_x_s), np.array(tr_x_m), np.array(tr_y), np.array(tr_tid), np.array(tr_tidx)), \
+           (np.array(va_x_s), np.array(va_x_m), np.array(va_y), np.array(va_tid), np.array(va_tidx)), \
            stock_cols, macro_cols
 
 # =============================================================================
@@ -216,8 +277,8 @@ def train():
 
     macro_df = load_macro_slim5()
     train_data, val_data, s_cols, m_cols = build_universe_dataset_slim(tickers, macro_df)
-    tr_x_s, tr_x_m, tr_y = train_data
-    va_x_s, va_x_m, va_y = val_data
+    tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx = train_data
+    va_x_s, va_x_m, va_y, va_tid, va_tidx = val_data
 
     print(f"[+] データ構築完了: Train = {len(tr_y)}, Val = {len(va_y)}")
     print(f"  - ret_pct分布: Train mean={tr_y.mean():.4f} std={tr_y.std():.4f} | "
@@ -227,22 +288,26 @@ def train():
     # 複数シードで学習してアンサンブル(予測平均)として本番運用する。
     for seed in ENSEMBLE_SEEDS:
         print(f"\n[*] [v8 アンサンブル seed={seed}] 学習開始...")
-        train_one_seed(seed, tr_x_s, tr_x_m, tr_y, va_x_s, va_x_m, va_y, s_cols, m_cols)
+        train_one_seed(seed, tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx,
+                        va_x_s, va_x_m, va_y, va_tid, va_tidx, s_cols, m_cols)
 
 
-def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, va_x_s, va_x_m, va_y, s_cols, m_cols):
+def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx,
+                    va_x_s, va_x_m, va_y, va_tid, va_tidx, s_cols, m_cols):
     set_seed(seed)
     save_path = MODEL_SAVE_PATH_TEMPLATE.format(seed=seed)
 
-    train_loader = DataLoader(UniverseDataset(tr_x_s, tr_x_m, tr_y), batch_size=128, shuffle=True, pin_memory=True)
-    val_loader = DataLoader(UniverseDataset(va_x_s, va_x_m, va_y), batch_size=256, shuffle=False, pin_memory=True)
+    train_ds = UniverseDataset(tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx)
+    val_ds = UniverseDataset(va_x_s, va_x_m, va_y, va_tid, va_tidx)
+    train_loader = DataLoader(train_ds, batch_sampler=SameTickerBatchSampler(tr_tid, 128, shuffle=True), pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_sampler=SameTickerBatchSampler(va_tid, 256, shuffle=False), pin_memory=True)
 
     model = DualStream_GRU_PreLN_Transformer(
         stock_dim=len(s_cols), macro_dim=len(m_cols),
         hidden_dim=HIDDEN_DIM, num_heads=1, num_classes=3, dropout=0.2
     ).to(DEVICE)
 
-    criterion = PairwiseRankingLoss()
+    criterion = NearPairRankingLoss(max_gap=MAX_PAIR_GAP)
     # lr=5e-05を試したが、真のアンサンブル(予測平均)バックテストで最上位帯
     # (n=461)のPFが0.94まで悪化する退行が判明したため0.0002に差し戻し。
     # (個別シードのtop-K評価だけでは見抜けなかった問題。要: 本番相当のアンサンブル
@@ -256,10 +321,11 @@ def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, va_x_s, va_x_m, va_y, s_cols, m_c
 
     for epoch in range(1, epochs + 1):
         model.train()
-        for b_xs, b_xm, b_y in train_loader:
-            b_xs, b_xm, b_y = b_xs.to(DEVICE, non_blocking=True), b_xm.to(DEVICE, non_blocking=True), b_y.to(DEVICE, non_blocking=True)
+        for b_xs, b_xm, b_y, b_tid, b_tidx in train_loader:
+            b_xs, b_xm, b_y, b_tidx = (b_xs.to(DEVICE, non_blocking=True), b_xm.to(DEVICE, non_blocking=True),
+                                        b_y.to(DEVICE, non_blocking=True), b_tidx.to(DEVICE, non_blocking=True))
             optimizer.zero_grad()
-            loss = criterion(model(b_xs, b_xm), b_y)
+            loss = criterion(model(b_xs, b_xm), b_y, b_tidx)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -268,13 +334,14 @@ def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, va_x_s, va_x_m, va_y, s_cols, m_c
         total_va_loss = 0.0
         n_val_batches = 0
         with torch.no_grad():
-            for b_xs, b_xm, b_y in val_loader:
-                b_xs, b_xm, b_y = b_xs.to(DEVICE, non_blocking=True), b_xm.to(DEVICE, non_blocking=True), b_y.to(DEVICE, non_blocking=True)
-                loss = criterion(model(b_xs, b_xm), b_y)
+            for b_xs, b_xm, b_y, b_tid, b_tidx in val_loader:
+                b_xs, b_xm, b_y, b_tidx = (b_xs.to(DEVICE, non_blocking=True), b_xm.to(DEVICE, non_blocking=True),
+                                            b_y.to(DEVICE, non_blocking=True), b_tidx.to(DEVICE, non_blocking=True))
+                loss = criterion(model(b_xs, b_xm), b_y, b_tidx)
                 total_va_loss += loss.item()
                 n_val_batches += 1
 
-        val_loss = total_va_loss / n_val_batches
+        val_loss = total_va_loss / n_val_batches if n_val_batches > 0 else float('inf')
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
