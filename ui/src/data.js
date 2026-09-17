@@ -127,10 +127,30 @@ function loadScreeningMeta(baseDir) {
       updatedAt: data.updated_at || '',
       macroRegime: data.macro_regime || null,
       regimeRisk: data.regime_risk || null,
+      shortEdge: data.short_edge || null,
     };
   } catch (e) {
     return null;
   }
 }
 
-module.exports = { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta };
+// run_dynamic_regime_screening_v8.py が出力する data/portfolio_latest.json を読む。
+// 複数銘柄を同時に買う前提で資金・信用枠を共有配分したポートフォリオ(build_portfolio()の
+// 結果)。個別銘柄ごとのスタンドアロン試算(final_regime_screened_v8.csvのstandalone_*列)
+// とは異なり、こちらが実際に発注すべき株数の最終値。
+function loadPortfolio(baseDir) {
+  const jsonPath = path.join(baseDir, 'data', 'portfolio_latest.json');
+  if (!fs.existsSync(jsonPath)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    return {
+      updatedAt: data.updated_at || '',
+      summary: data.summary || null,
+      positions: data.positions || [],
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+module.exports = { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta, loadPortfolio };

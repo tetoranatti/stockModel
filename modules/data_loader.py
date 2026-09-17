@@ -13,8 +13,23 @@ SCREENER_CSV = os.path.join(BASE_DIR, "screener_result.csv")
 JPX_DB_PATH = os.path.join(BASE_DIR, "jpx_daily_features_db.csv")
 SECTOR_SENTIMENT_JSON = os.path.join(DATA_DIR, "sector_sentiment.json")
 SECTOR_MASTER_JSON = os.path.join(DATA_DIR, "jpx_sector_master.json")
+# TOB(公開買付)・MBO等、J-Quantsの銘柄マスターには現れない個別事情で
+# 除外したい銘柄の手動リスト。気づいたら都度ここに追記する。
+EXCLUDED_TICKERS_JSON = os.path.join(DATA_DIR, "excluded_tickers.json")
 
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+def load_excluded_tickers():
+    """{"コード.T": {"reason": ..., "added": ...}} 形式のJSONを読み、除外対象コードのsetを返す。
+    ファイルが無ければ空集合(何も除外しない)。"""
+    if not os.path.exists(EXCLUDED_TICKERS_JSON):
+        return set()
+    try:
+        with open(EXCLUDED_TICKERS_JSON, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return set(data.keys())
+    except Exception:
+        return set()
 
 def load_screener_tickers():
     if not os.path.exists(SCREENER_CSV):
@@ -27,10 +42,13 @@ def load_screener_tickers():
     code_col = [c for c in raw_df.columns if "コード" in str(c)][0]
     import re
     tickers = [
-        f"{str(c).strip().upper()}.T" 
-        for c in raw_df[code_col] 
+        f"{str(c).strip().upper()}.T"
+        for c in raw_df[code_col]
         if re.match(r"^[0-9]{4}$|^[0-9]{3}[A-Z]$", str(c).strip().upper())
     ]
+    excluded = load_excluded_tickers()
+    if excluded:
+        tickers = [t for t in tickers if t not in excluded]
     return tickers
 
 def fetch_all_tickers_data():

@@ -360,3 +360,90 @@ tr.selected { background: #0369a1 !important; }
 .term-success { color: #4ade80; }
 .term-error { color: #f87171; }
 .term-info { color: #38bdf8; }
+
+/* ポートフォリオモーダル */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* [hidden]属性はブラウザ既定でdisplay:noneになるはずだが、上の.modal-overlayの
+   display:flex(author CSS)がUA既定を上書きしてしまい閉じられなくなっていたための対策 */
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-box {
+  background: #131b2e;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  width: 720px;
+  max-width: 92vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #334155;
+  font-size: 14px;
+  font-weight: bold;
+  color: #38bdf8;
+}
+
+.modal-body {
+  padding: 12px 16px;
+  font-size: 12px;
+}
+
+.modal-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.modal-body th {
+  position: sticky;
+  top: 0;
+  background: #1e293b;
+  color: #94a3b8;
+  padding: 6px;
+  text-align: right;
+  border-bottom: 1px solid #334155;
+  font-size: 11px;
+}
+
+.modal-body th:first-child, .modal-body td:first-child { text-align: left; }
+.modal-body td { padding: 5px 6px; border-bottom: 1px solid #1e293b; text-align: right; }
+
+.portfolio-summary-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.portfolio-summary-item { display: flex; flex-direction: column; gap: 2px; }
+.portfolio-summary-label { font-size: 10px; color: #94a3b8; }
+.portfolio-summary-val { font-size: 14px; font-weight: bold; color: #f8fafc; }
+
+.modal-footer {
+  padding: 10px 16px;
+  border-top: 1px solid #334155;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.leverage-capped-tag {
+  color: #fbbf24;
+  font-size: 10px;
+}

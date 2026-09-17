@@ -73,6 +73,11 @@ async function runFullPipeline(baseDir, onLog) {
   if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'backfill_flow_signal_cache.py'))) {
     await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'backfill_flow_signal_cache.py'), onLog);
   }
+  // 空売り機会モデル(short_edge)の学習特徴量用。まだライブスクリーニングの判定には
+  // 使っていないが、日々キャッシュを伸ばしておくことで再学習時の対象期間が広がる。
+  if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'backfill_short_ratio_cache.py'))) {
+    await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'backfill_short_ratio_cache.py'), onLog);
+  }
 }
 
 module.exports = { runFullPipeline };

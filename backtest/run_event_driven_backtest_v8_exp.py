@@ -21,8 +21,13 @@ from modules.model_inference import load_trained_models_ensemble, predict_probab
 
 BASE_DIR = r"F:\stockModel"
 UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
+# バックテスト専用の拡張ユニバース(売買代金10億円以上、本番ライブスクリーニングと同じ
+# 母集団規模=564銘柄)。学習用のuniverse_150_tickers.txtとは別ファイルにし、
+# 学習・地合い危険度モデル・空売り機会モデルには影響させない。
+UNIVERSE_PATH_BACKTEST = os.path.join(BASE_DIR, "universe_backtest_tickers.txt")
 ENSEMBLE_SEEDS = [42, 43, 44, 45, 46]
 MODEL_PATHS = [os.path.join(BASE_DIR, f"swing_model_v8_ensemble_seed{s}.pt") for s in ENSEMBLE_SEEDS]
+MODEL_PATHS_TOPIX = [os.path.join(BASE_DIR, f"swing_model_v8_topix_seed{s}.pt") for s in ENSEMBLE_SEEDS]
 CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 UNIVERSE_BARS_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
 MIN_CROSS_SECTION = 20
@@ -73,24 +78,27 @@ def compute_max_drawdown(equity_curve):
             max_dd = min(max_dd, (eq - peak) / peak)
     return max_dd
 
-def run_backtest():
+def run_backtest(return_source="nk225", use_expanded_universe=False):
     print("=" * 85)
-    print("【v8 ランキング損失+横断面正規化+アンサンブル版 閾値探索バックテスト】")
+    print(f"【v8 ランキング損失+横断面正規化+アンサンブル版 閾値探索バックテスト "
+          f"(指数ソース: {return_source}, 拡張ユニバース: {use_expanded_universe})】")
     print("=" * 85)
 
-    missing = [p for p in MODEL_PATHS if not os.path.exists(p)]
+    model_paths = MODEL_PATHS_TOPIX if return_source == "topix" else MODEL_PATHS
+    missing = [p for p in model_paths if not os.path.exists(p)]
     if missing:
         print(f"[!] モデル重みが見つかりません: {missing}")
         return
 
-    models, stock_cols, macro_cols = load_trained_models_ensemble(MODEL_PATHS)
+    models, stock_cols, macro_cols = load_trained_models_ensemble(model_paths)
     print(f"[*] アンサンブル {len(models)} モデルを読み込みました (seeds={ENSEMBLE_SEEDS})")
 
-    macro_df = load_macro_slim5()
+    macro_df = load_macro_slim5(return_source=return_source)
     macro_feed = macro_df[macro_cols]
 
-    if os.path.exists(UNIVERSE_PATH):
-        with open(UNIVERSE_PATH, "r", encoding="utf-8") as f:
+    universe_path = UNIVERSE_PATH_BACKTEST if use_expanded_universe else UNIVERSE_PATH
+    if os.path.exists(universe_path):
+        with open(universe_path, "r", encoding="utf-8") as f:
             tickers = [line.strip() for line in f if line.strip()]
     else:
         tickers = ["7203.T", "6758.T", "8035.T", "8306.T", "9432.T", "7167.T", "4519.T", "5726.T"]
@@ -205,7 +213,10 @@ def run_backtest():
                     'beta': betas[idx],
                     'ret_pct': ret_pct,
                     'exit_reason': exit_reason,
-                    'holding_days': h_days
+                    'holding_days': h_days,
+                    # 想定資金での実株数シミュレーション用(UIのupdatePositionSize()と同じ計算に使う)
+                    'entry_price': float(entry_p),
+                    'atr': float(atrs[idx]),
                 })
         except Exception:
             continue
@@ -217,6 +228,13 @@ def run_backtest():
     if df_all.empty:
         print("[-] 有効な検証データが取得できませんでした。")
         return
+
+    # トレード単位の生データをキャッシュ(空売りモデル等、別の切り口で再分析する際に
+    # PF推論(最も重い処理)をやり直さずに済むようにする)
+    universe_suffix = "_universe564" if use_expanded_universe else ""
+    trades_cache_path = os.path.join(BASE_DIR, "data", "cache", f"backtest_trades_{return_source}{universe_suffix}.parquet")
+    df_all.to_parquet(trades_cache_path)
+    print(f"[+] トレード単位データをキャッシュ: {trades_cache_path} ({len(df_all)}件)")
 
     print(f"\n[★] 推論完了: 総サンプル数 = {len(df_all)}")
     print(f"  --> p_win 分布: Min={df_all['p_win'].min():.3f} | Median={df_all['p_win'].median():.3f} | Max={df_all['p_win'].max():.3f}")
@@ -344,4 +362,6 @@ def print_monthly_breakdown(df_all, th, label):
         print(f"{str(month):<10} | {len(g):<6d} | {win_rate:<8.1f} | {pf:<6.2f} | {max_dd*100:<6.1f}%")
 
 if __name__ == "__main__":
-    run_backtest()
+    return_source = "topix" if "--topix" in sys.argv else "nk225"
+    use_expanded_universe = "--expanded-universe" in sys.argv
+    run_backtest(return_source=return_source, use_expanded_universe=use_expanded_universe)

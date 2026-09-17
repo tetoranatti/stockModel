@@ -26,6 +26,8 @@ from modules.cross_sectional_features import (
 BASE_DIR = r"F:\stockModel"
 UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
 MODEL_SAVE_PATH_TEMPLATE = os.path.join(BASE_DIR, "swing_model_v8_ensemble_seed{seed}.pt")
+# 日経225の代わりにTOPIXでベータ・モメンタム特徴量を計算する実験用(本番とは別チェックポイント)
+MODEL_SAVE_PATH_TEMPLATE_TOPIX = os.path.join(BASE_DIR, "swing_model_v8_topix_seed{seed}.pt")
 ENSEMBLE_SEEDS = [42, 43, 44, 45, 46]
 CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 UNIVERSE_BARS_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
@@ -271,34 +273,37 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
 # =============================================================================
 # 4. 学習ループ
 # =============================================================================
-def train():
+def train(return_source="nk225"):
     if os.path.exists(UNIVERSE_PATH):
         with open(UNIVERSE_PATH, "r", encoding="utf-8") as f:
             tickers = [line.strip() for line in f if line.strip()]
     else:
         tickers = ["7203.T", "6758.T", "8035.T", "8306.T", "9432.T", "7167.T", "4519.T", "5726.T"]
 
-    macro_df = load_macro_slim5()
+    macro_df = load_macro_slim5(return_source=return_source)
     train_data, val_data, s_cols, m_cols = build_universe_dataset_slim(tickers, macro_df)
     tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx = train_data
     va_x_s, va_x_m, va_y, va_tid, va_tidx = val_data
 
-    print(f"[+] データ構築完了: Train = {len(tr_y)}, Val = {len(va_y)}")
+    print(f"[+] データ構築完了: Train = {len(tr_y)}, Val = {len(va_y)} (指数ソース: {return_source})")
     print(f"  - ret_pct分布: Train mean={tr_y.mean():.4f} std={tr_y.std():.4f} | "
           f"Val mean={va_y.mean():.4f} std={va_y.std():.4f}")
+
+    save_template = MODEL_SAVE_PATH_TEMPLATE_TOPIX if return_source == "topix" else MODEL_SAVE_PATH_TEMPLATE
 
     # 単一シードだと運の良し悪しでPFが大きく振れる(複数シード検証で確認済み)ため、
     # 複数シードで学習してアンサンブル(予測平均)として本番運用する。
     for seed in ENSEMBLE_SEEDS:
         print(f"\n[*] [v8 アンサンブル seed={seed}] 学習開始...")
         train_one_seed(seed, tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx,
-                        va_x_s, va_x_m, va_y, va_tid, va_tidx, s_cols, m_cols)
+                        va_x_s, va_x_m, va_y, va_tid, va_tidx, s_cols, m_cols, save_template)
 
 
 def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx,
-                    va_x_s, va_x_m, va_y, va_tid, va_tidx, s_cols, m_cols):
+                    va_x_s, va_x_m, va_y, va_tid, va_tidx, s_cols, m_cols,
+                    save_template=MODEL_SAVE_PATH_TEMPLATE):
     set_seed(seed)
-    save_path = MODEL_SAVE_PATH_TEMPLATE.format(seed=seed)
+    save_path = save_template.format(seed=seed)
 
     train_ds = UniverseDataset(tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx)
     val_ds = UniverseDataset(va_x_s, va_x_m, va_y, va_tid, va_tidx)
@@ -370,4 +375,5 @@ def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx,
     print(f"[+] 重み保存完了: {save_path} (best_val_loss={best_val_loss:.4f})")
 
 if __name__ == "__main__":
-    train()
+    return_source = "topix" if "--topix" in sys.argv else "nk225"
+    train(return_source=return_source)

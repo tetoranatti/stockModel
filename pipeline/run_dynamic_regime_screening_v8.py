@@ -27,7 +27,13 @@ from modules.model_inference import (
 from modules.risk_manager import (
     determine_sizing_factor,
     evaluate_screening_gate,
-    calculate_target_stop_levels
+    calculate_target_stop_levels,
+    calculate_recommended_position,
+    build_portfolio,
+    DEFAULT_CAPITAL,
+    DEFAULT_RISK_PCT,
+    DEFAULT_LEVERAGE,
+    DEFAULT_MAX_POSITION_PCT,
 )
 from modules.regime_risk_model import (
     add_regime_features,
@@ -36,6 +42,15 @@ from modules.regime_risk_model import (
     predict_regime_risk,
     determine_regime_zone,
     append_regime_risk_cache,
+)
+from modules.short_edge_model import (
+    SHORT_EDGE_COLS_NO_FLOW,
+    build_idx_momentum_features,
+    build_vix_features,
+    load_short_edge_ensemble,
+    predict_short_edge,
+    determine_short_edge_size_mult,
+    append_short_edge_cache,
 )
 from modules.stock_features import compute_stock_features
 from modules.cross_sectional_features import (
@@ -52,6 +67,8 @@ BASE_DIR = r"F:\stockModel"
 ENSEMBLE_SEEDS = [42, 43, 44, 45, 46]
 MODEL_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"swing_model_v8_ensemble_seed{s}.pt") for s in ENSEMBLE_SEEDS]
 REGIME_RISK_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"regime_risk_model_seed{s}.pt") for s in ENSEMBLE_SEEDS]
+SHORT_EDGE_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"short_edge_noflow_model_seed{s}.pt") for s in ENSEMBLE_SEEDS]
+VIX_CSV_PATH = os.path.join(BASE_DIR, "data", "vix_fred.csv")
 OUTPUT_CSV = os.path.join(BASE_DIR, "final_regime_screened_v8.csv")
 OUTPUT_JSON = os.path.join(BASE_DIR, "data", "screening_results_v8.json")
 
@@ -178,6 +195,11 @@ def main():
     candidates = []
     print(f"[*] アンサンブル推論を開始...")
 
+    # 空売り機会モデル(short_edge)用に、全銘柄の生p_win/p_stop・出来高比率を集めておく
+    # (ロング候補に絞る前の全スキャン対象が対象。個別銘柄補正前の生値を使うのは
+    # 学習時と定義を揃えるため)
+    short_edge_p_win, short_edge_p_stop, short_edge_vol_ratio = {}, {}, {}
+
     for i, t in enumerate(per_ticker_df.keys()):
         try:
             df = per_ticker_df[t]
@@ -205,6 +227,10 @@ def main():
             vol_ratio = float(df_latest['vol_ratio_5d'])
             ret_1d = float(df_latest['stock_ret_1d'])
             is_bear_candle = curr_close < curr_open
+
+            short_edge_p_win[t] = p_win_raw
+            short_edge_p_stop[t] = p_stop_raw
+            short_edge_vol_ratio[t] = vol_ratio
 
             # 信用需給補正
             m_item = margin_cache.get(t)
@@ -317,6 +343,76 @@ def main():
         res_df.loc[demote_idx, 'reason'] = res_df.loc[demote_idx, 'reason'] + f" ＋ 地合い危険度{regime_zone_info['zone']}によりK={k_final}超過で降格"
         res_df.loc[demote_idx, 'action'] = "👀 WATCH"
 
+    # --- 空売り機会モデル(short_edge): 翌日TOPIX下落確率からロングサイズを事後調整 ---
+    # (地合い危険度モデルと同じ日次集約の発想。市場悲観日はSTRONG BUYでも勝率が
+    # 73%→44%まで落ちることをバックテストで確認済み。ここではロング縮小のみ適用し、
+    # 空売り実行自体は行わない)
+    short_edge_zone_info = {"zone": "NEUTRAL", "size_mult": 1.0}
+    p_short_edge = None
+    missing_short_edge = [p for p in SHORT_EDGE_WEIGHTS_LIST if not os.path.exists(p)]
+    if missing_short_edge:
+        print(f"[!] 空売り機会モデルの重みが見つからないためNEUTRAL固定で継続: {missing_short_edge}")
+    elif not short_edge_p_win:
+        print("[!] 空売り機会モデル用の推論データが無いためNEUTRAL固定で継続")
+    else:
+        try:
+            idx_feat = build_idx_momentum_features(macro_df['NK_Close'])
+            vix_feat = build_vix_features(VIX_CSV_PATH)
+            latest_date = idx_feat.index.max()
+
+            pw = np.array(list(short_edge_p_win.values()))
+            ps = np.array([short_edge_p_stop[t] for t in short_edge_p_win.keys()])
+            vr = np.array(list(short_edge_vol_ratio.values()))
+
+            feature_row = {
+                'idx_ret_1d': float(idx_feat.loc[latest_date, 'idx_ret_1d']),
+                'idx_ret_5d': float(idx_feat.loc[latest_date, 'idx_ret_5d']),
+                'idx_ret_20d': float(idx_feat.loc[latest_date, 'idx_ret_20d']),
+                'vix_level_norm': float(vix_feat['vix_level_norm'].reindex(idx_feat.index).ffill().loc[latest_date]),
+                'vix_change_norm': float(vix_feat['vix_change_norm'].reindex(idx_feat.index).ffill().loc[latest_date]),
+                'vix_ma5_diff': float(vix_feat['vix_ma5_diff'].reindex(idx_feat.index).ffill().loc[latest_date]),
+                'vix_zscore': float(vix_feat['vix_zscore'].reindex(idx_feat.index).ffill().loc[latest_date]),
+                'cross_vol_ratio_mean': float(vr.mean()),
+                'cross_vol_thin_pct': float((vr < 0.8).mean()),
+                'pf_avg_p_win': float(pw.mean()),
+                'pf_pct_bullish': float((pw > ps).mean()),
+            }
+
+            short_edge_models, se_cols, se_mean, se_std = load_short_edge_ensemble(SHORT_EDGE_WEIGHTS_LIST)
+            p_short_edge = predict_short_edge(short_edge_models, se_cols, se_mean, se_std, feature_row)
+            short_edge_zone_info = determine_short_edge_size_mult(p_short_edge)
+            print(f"[★] 空売り機会スコア: {p_short_edge:.3f} -> {short_edge_zone_info['zone']}"
+                  f" (ロングサイズ倍率={short_edge_zone_info['size_mult']:.2f})\n")
+
+            n_cached_se = append_short_edge_cache(latest_date, p_short_edge, short_edge_zone_info)
+            print(f"[*] 空売り機会スコアを日次キャッシュに追記(累計{n_cached_se}日分)\n")
+
+            if short_edge_zone_info['size_mult'] != 1.0:
+                res_df['size_factor'] = (res_df['size_factor'] * short_edge_zone_info['size_mult']).round(2)
+                res_df['size_reason'] = res_df['size_reason'] + f" ＋ 空売り機会{short_edge_zone_info['zone']}({short_edge_zone_info['size_mult']:.2f}倍)"
+        except Exception as e:
+            print(f"[!] 空売り機会モデルの推論に失敗したためNEUTRAL固定で継続: {e}")
+
+    # --- 推奨ポジションサイズの自動計算(UIのupdatePositionSize()と同じ式) ---
+    # size_factor確定後(地合い危険度・空売り機会モデルの調整を全て反映した後)に計算する。
+    # 注: これは「その銘柄だけを買う」前提のスタンドアロン参考値(standalone_*)。
+    # 複数銘柄を同時に買う場合の資金配分は、この後のbuild_portfolio()側を見ること。
+    position_rows = res_df.apply(
+        lambda row: calculate_recommended_position(
+            price=float(row['price']), stop_price=float(row['stop_price']), size_factor=float(row['size_factor'])
+        ), axis=1
+    )
+    position_df = pd.DataFrame(list(position_rows)).rename(columns={
+        'recommended_shares': 'standalone_shares',
+        'estimated_cost_yen': 'standalone_cost_yen',
+        'estimated_max_loss_yen': 'standalone_max_loss_yen',
+        'leverage_capped': 'standalone_leverage_capped',
+    })
+    res_df = pd.concat([res_df.reset_index(drop=True), position_df.reset_index(drop=True)], axis=1)
+    n_leverage_capped = int(res_df['standalone_leverage_capped'].sum())
+    print(f"[*] 推奨ポジションサイズ(単体参考値)計算完了(資金{DEFAULT_CAPITAL:,}円・リスク{DEFAULT_RISK_PCT}%"
+          f"・レバレッジ{DEFAULT_LEVERAGE}倍換算、信用余力上限で縮小: {n_leverage_capped}件)")
+
     res_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8-sig')
 
     try:
@@ -336,6 +432,11 @@ def main():
                 "zone": regime_zone_info['zone'],
                 "k": regime_zone_info['k'],
                 "size_mult": regime_zone_info['size_mult'],
+            },
+            "short_edge": {
+                "score": p_short_edge,
+                "zone": short_edge_zone_info['zone'],
+                "size_mult": short_edge_zone_info['size_mult'],
             },
             "results": res_df.to_dict(orient="records")
         }
@@ -359,6 +460,42 @@ def main():
     if regime_risk_score is not None:
         print(f"[*] 地合い危険度: {regime_risk_score:.3f} ({regime_zone_info['zone']}ゾーン, K={regime_zone_info['k']}, サイズ倍率={regime_zone_info['size_mult']:.2f})")
     print(f"[*] 判定サマリ: {res_df['action'].value_counts().to_dict()}")
+
+    # --- ポートフォリオ構築: 複数銘柄を同時に買う前提で資金・信用枠を共有しながら配分 ---
+    # (standalone_sharesを単純合計すると資金・信用枠を超過しうるため、優先順位
+    # [priority→ev_score、既にres_dfはこの順でソート済み]順に残り予算内で配分する)
+    actionable = res_df[res_df['action'].isin(["🔥 STRONG BUY", "🎯 BUY"])].copy()
+    portfolio_rows, portfolio_summary = build_portfolio(actionable.to_dict(orient="records"))
+
+    print("\n" + "=" * 95)
+    print(f"【ポートフォリオ】(資金{DEFAULT_CAPITAL:,}円・リスク{DEFAULT_RISK_PCT}%・レバレッジ{DEFAULT_LEVERAGE}倍・"
+          f"1銘柄上限{DEFAULT_MAX_POSITION_PCT*100:.0f}%・最大{BASE_K}銘柄)")
+    print("=" * 95)
+    if not portfolio_rows:
+        print("  該当銘柄なし")
+    else:
+        pf_df = pd.DataFrame(portfolio_rows)
+        pos_cols = ['ticker', 'price', 'action', 'recommended_shares', 'estimated_cost_yen', 'estimated_max_loss_yen', 'leverage_capped', 'maxpos_capped']
+        print(pf_df[pos_cols].to_string(index=False))
+        print(f"\n  採用銘柄数: {portfolio_summary['n_positions']} (候補{portfolio_summary['n_candidates_evaluated']}件中)")
+        print(f"  信用余力使用: {portfolio_summary['used_buying_power_yen']:,}円 / "
+              f"{portfolio_summary['max_buying_power']:,.0f}円 ({portfolio_summary['buying_power_usage_pct']:.1f}%)")
+        print(f"  想定最大損失合計: {portfolio_summary['total_risk_yen']:,}円 "
+              f"(資金比 {portfolio_summary['total_risk_yen']/DEFAULT_CAPITAL*100:.2f}%)")
+    print("=" * 95)
+
+    try:
+        portfolio_path = os.path.join(BASE_DIR, "data", "portfolio_latest.json")
+        with open(portfolio_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "summary": portfolio_summary,
+                "positions": portfolio_rows,
+            }, f, ensure_ascii=False, indent=2)
+        print(f"[+] ポートフォリオ保存完了: {portfolio_path}")
+    except Exception as e:
+        print(f"[!] ポートフォリオ保存スキップ: {e}")
+
     print(f"[+] 保存完了: {OUTPUT_CSV}")
 
 if __name__ == "__main__":
