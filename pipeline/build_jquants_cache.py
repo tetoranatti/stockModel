@@ -16,6 +16,7 @@ CACHE_DIR = os.path.join(DATA_DIR, "cache")
 MARGIN_DIR = os.path.join(DATA_DIR, "margin")
 UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
 TRAIN_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
+DAILY_SCREEN_RAW_CACHE_PATH = os.path.join(CACHE_DIR, "daily_screening_bars_raw.parquet")
 TOPIX_CACHE_PATH = os.path.join(CACHE_DIR, "train_topix_bars.parquet")
 NK225_UNDERLYING_CACHE_PATH = os.path.join(CACHE_DIR, "train_nk225_underlying.parquet")
 
@@ -285,58 +286,92 @@ def main():
         return rec.get("ProdCat") == "011" and rec.get("Mkt") != "0113"
 
     # =========================================================================
-    # PART 1: 当日スクリーニング ＆ UI用 キャッシュ生成（直近45日バルク取得）
+    # PART 1: 当日スクリーニング ＆ UI用 キャッシュ生成（直近FETCH_DAYS営業日バルク取得）
     # =========================================================================
     print("=" * 75)
-    print("【1/6】日次スクリーニング用キャッシュ生成 (直近45営業日 / 代金10億円以上)")
+    print(f"【1/6】日次スクリーニング用キャッシュ生成 (直近{FETCH_DAYS}営業日 / 代金10億円以上)")
     print("=" * 75)
 
     target_days = get_recent_business_days(FETCH_DAYS)
-    all_records = []
 
-    print(f"[*] 直近 {len(target_days)} 営業日分の全市場データを{FETCH_WORKERS}並列で取得開始...")
-    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
-        futures = {
-            executor.submit(fetch_daily_all, session, d_str, 3, rate_limiter): d_str
-            for d_str in target_days
-        }
-        done_count = 0
-        for future in as_completed(futures):
-            d_str = futures[future]
-            records = future.result()
-            if records:
-                all_records.extend(records)
-            done_count += 1
-            print(f"  --> [{done_count}/{len(target_days)}] {d_str}: {len(records)} 銘柄取得完了")
+    # 差分更新: 既にローカルキャッシュにある営業日はAPIから再取得しない。
+    # (以前は実行のたびにFETCH_DAYS分を毎回丸ごと再取得しており、ほぼ全日が
+    #  無駄な重複取得だった。学習用キャッシュ(PART2)と同じ差分更新方式に揃える。)
+    existing_sub_df = None
+    if os.path.exists(DAILY_SCREEN_RAW_CACHE_PATH):
+        try:
+            existing_sub_df = pd.read_parquet(DAILY_SCREEN_RAW_CACHE_PATH)
+        except Exception:
+            existing_sub_df = None
 
-    if not all_records:
+    cached_days = set()
+    if existing_sub_df is not None and not existing_sub_df.empty:
+        cached_days = set(existing_sub_df['Date'].dt.strftime('%Y%m%d').unique())
+    missing_days = [d for d in target_days if d not in cached_days]
+
+    print(f"[*] 直近 {len(target_days)} 営業日中 {len(missing_days)} 日分が未キャッシュ。"
+          f"{FETCH_WORKERS}並列でAPIから取得...")
+
+    new_sub_df = None
+    if missing_days:
+        all_records = []
+        with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
+            futures = {
+                executor.submit(fetch_daily_all, session, d_str, 3, rate_limiter): d_str
+                for d_str in missing_days
+            }
+            done_count = 0
+            for future in as_completed(futures):
+                d_str = futures[future]
+                records = future.result()
+                if records:
+                    all_records.extend(records)
+                done_count += 1
+                print(f"  --> [{done_count}/{len(missing_days)}] {d_str}: {len(records)} 銘柄取得完了")
+
+        if all_records:
+            print("[*] 新規データ結合・整形中...")
+            raw_df = pd.DataFrame(all_records)
+            raw_df['Date'] = pd.to_datetime(raw_df['Date'])
+
+            raw_df = raw_df[raw_df['Code'].astype(str).str.match(r"^[0-9]{4}0?$|^[0-9]{3}[A-Z]0?$")]
+            raw_df['ticker'] = raw_df['Code'].astype(str).str.slice(0, 4) + ".T"
+
+            col_map = {
+                'AdjO': 'Open',
+                'AdjH': 'High',
+                'AdjL': 'Low',
+                'AdjC': 'Close',
+                'AdjVo': 'Volume',
+                'TurnoverValue': 'Turnover'
+            }
+            for k in ['O', 'H', 'L', 'C', 'Vo', 'Va']:
+                if k in raw_df.columns:
+                    target_k = 'Turnover' if k == 'Va' else col_map.get(f"Adj{k}", k)
+                    if target_k not in raw_df.columns:
+                        raw_df[target_k] = raw_df[k]
+
+            new_sub_df = raw_df[['Date', 'ticker', 'Open', 'High', 'Low', 'Close', 'Volume']].dropna()
+            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                new_sub_df[col] = new_sub_df[col].astype(float)
+
+    if existing_sub_df is not None and new_sub_df is not None:
+        combined_sub_df = pd.concat([existing_sub_df, new_sub_df], ignore_index=True)
+    elif new_sub_df is not None:
+        combined_sub_df = new_sub_df
+    else:
+        combined_sub_df = existing_sub_df
+
+    if combined_sub_df is None or combined_sub_df.empty:
         print("[-] 日次バルクデータが取得できませんでした。")
         return
 
-    print("[*] データ結合・整形中...")
-    raw_df = pd.DataFrame(all_records)
-    raw_df['Date'] = pd.to_datetime(raw_df['Date'])
-    
-    raw_df = raw_df[raw_df['Code'].astype(str).str.match(r"^[0-9]{4}0?$|^[0-9]{3}[A-Z]0?$")]
-    raw_df['ticker'] = raw_df['Code'].astype(str).str.slice(0, 4) + ".T"
+    combined_sub_df = combined_sub_df.drop_duplicates(subset=['Date', 'ticker'], keep='last')
+    combined_sub_df.to_parquet(DAILY_SCREEN_RAW_CACHE_PATH)
 
-    col_map = {
-        'AdjO': 'Open',
-        'AdjH': 'High',
-        'AdjL': 'Low',
-        'AdjC': 'Close',
-        'AdjVo': 'Volume',
-        'TurnoverValue': 'Turnover'
-    }
-    for k in ['O', 'H', 'L', 'C', 'Vo', 'Va']:
-        if k in raw_df.columns:
-            target_k = 'Turnover' if k == 'Va' else col_map.get(f"Adj{k}", k)
-            if target_k not in raw_df.columns:
-                raw_df[target_k] = raw_df[k]
-
-    sub_df = raw_df[['Date', 'ticker', 'Open', 'High', 'Low', 'Close', 'Volume']].dropna()
-    for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-        sub_df[col] = sub_df[col].astype(float)
+    # 以降の処理対象は直近FETCH_DAYS営業日分のローリングウィンドウのみに絞る
+    # (キャッシュ自体は全履歴を蓄積するが、無限に肥大化させないよう処理はウィンドウ内で完結させる)
+    sub_df = combined_sub_df[combined_sub_df['Date'].dt.strftime('%Y%m%d').isin(set(target_days))].copy()
 
     # 10億円スクリーニング
     print("[*] 直近5日平均 売買代金 10億円以上の銘柄を抽出中...")

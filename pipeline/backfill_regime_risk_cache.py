@@ -6,6 +6,10 @@ import os
 import datetime
 import pandas as pd
 
+# pipeline/配下からでもmodules/・training/を解決できるようにパスを追加
+import sys
+sys.path.insert(0, r"F:\stockModel")
+sys.path.insert(0, r"F:\stockModel\training")
 import train_model_v8_exp as tm
 from modules.macro_features import load_macro_slim5
 from modules.stock_features import compute_stock_features
@@ -58,7 +62,16 @@ def main():
     models, regime_cols, feat_mean, feat_std = load_regime_risk_ensemble(REGIME_MODEL_PATHS)
 
     valid_df = macro_df[REGIME_COLS].dropna()
-    print(f"[+] 対象日数: {len(valid_df)} ({valid_df.index.min().date()} 〜 {valid_df.index.max().date()})")
+
+    cache_path = os.path.join(BASE_DIR, "data", "regime_risk_daily_cache.csv")
+    if os.path.exists(cache_path):
+        existing_dates = set(pd.read_csv(cache_path, encoding='utf-8-sig')["date"].unique())
+        valid_df = valid_df[~valid_df.index.strftime("%Y-%m-%d").isin(existing_dates)]
+
+    print(f"[+] 未キャッシュ対象日数: {len(valid_df)}")
+    if len(valid_df) == 0:
+        print("[+] 追加分なし。完了。")
+        return
 
     for i, (date, row) in enumerate(valid_df.iterrows()):
         risk_score = predict_regime_risk(models, regime_cols, feat_mean, feat_std, row)

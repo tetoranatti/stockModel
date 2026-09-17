@@ -6,6 +6,9 @@ import os
 import datetime
 import pandas as pd
 
+# pipeline/配下からでもmodules/を解決できるようにプロジェクトルートをsys.pathへ追加
+import sys
+sys.path.insert(0, r"F:\stockModel")
 from parse_flow_signal import fetch_daily_volume_file, extract_nk225_volumes
 from modules.constants import CTA_BROKER_KEYWORDS
 

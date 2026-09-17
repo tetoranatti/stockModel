@@ -7,6 +7,9 @@ import numpy as np
 import pandas as pd
 import openpyxl
 
+# pipeline/配下からでもmodules/を解決できるようにプロジェクトルートをsys.pathへ追加
+import sys
+sys.path.insert(0, r"F:\stockModel")
 from modules.constants import CTA_BROKER_KEYWORDS
 
 # 平日祝日の自動判定用（jpholidayが未インストールの場合はフォールバック）

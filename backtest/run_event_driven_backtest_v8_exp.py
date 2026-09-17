@@ -5,6 +5,9 @@ import numpy as np
 import pandas as pd
 import torch
 
+# backtest/配下からでもmodules/を解決できるようにプロジェクトルートをsys.pathへ追加
+import sys
+sys.path.insert(0, r"F:\stockModel")
 from modules.model_arch import DualStream_GRU_PreLN_Transformer
 from modules.macro_features import load_macro_slim5
 from modules.stock_features import compute_stock_features
@@ -247,6 +250,34 @@ def run_backtest():
 
         print(f"{th:<12.3f} | {len(sub):<6d} | {win_rate:<8.1f} | {tp_rate:<10.1f}% | {sl_rate:<8.1f}% | {rr:<6.2f} | {pf:<6.2f} | {max_dd*100:<6.1f}%")
 
+    print("=" * 100)
+
+    # --- BUY と STRONG BUY の成績差(排他区間) ---
+    # 上の表は「p_win >= th」の累積集計なので、STRONG BUY銘柄がBUY銘柄の集計にも
+    # 混ざってしまい、両者の純粋な成績差が見えない。ここではrisk_manager.pyの
+    # evaluate_screening_gate()と同じ閾値で排他的に区切って比較する
+    # (vol_ratio>=0.85のBUY追加条件はここでは未適用のため実運用よりわずかに緩い)。
+    print(f"\n{'='*100}")
+    print("【アクション階層別 成績比較 (STRONG BUY vs BUY vs WATCH, 排他区間)】")
+    print("  区分: STRONG BUY: p_win>=0.700 | BUY: 0.590<=p_win<0.700 | WATCH: 0.470<=p_win<0.590 (共通: p_win>p_stop)")
+    print("=" * 100)
+    print(f"{'階層':<14} | {'件数':<6} | {'勝率 (%)':<8} | {'利確到達率':<10} | {'損切率':<8} | {'損益比':<6} | {'PF':<6} | {'平均ret_pct':<12} | {'MaxDD':<7}")
+    print("-" * 110)
+    for label, lo, hi in [("STRONG BUY", 0.700, float('inf')), ("BUY", 0.590, 0.700), ("WATCH", 0.470, 0.590)]:
+        sub = df_all[(df_all['p_win'] >= lo) & (df_all['p_win'] < hi) & (df_all['p_win'] > df_all['p_stop'])].copy()
+        if len(sub) == 0:
+            print(f"{label:<14} | {0:<6} | {'-':<8} | {'-':<10} | {'-':<8} | {'-':<6} | {'-':<6} | {'-':<12} | {'-':<7}")
+            continue
+        wins, losses = sub[sub['ret_pct'] > 0], sub[sub['ret_pct'] < 0]
+        win_rate = len(wins) / len(sub) * 100.0
+        tp_rate = (sub['exit_reason'] == 'TAKE_PROFIT').mean() * 100.0
+        sl_rate = sub['exit_reason'].str.startswith('STOP_LOSS').mean() * 100.0
+        avg_w = wins['ret_pct'].mean() if len(wins) > 0 else 0.0
+        avg_l = abs(losses['ret_pct'].mean()) if len(losses) > 0 else 0.0
+        rr = avg_w / avg_l if avg_l > 0 else 0.0
+        pf = wins['ret_pct'].sum() / abs(losses['ret_pct'].sum()) if len(losses) > 0 and losses['ret_pct'].sum() != 0 else float('inf')
+        max_dd = compute_max_drawdown(simulate_equity_curve(sub))
+        print(f"{label:<14} | {len(sub):<6d} | {win_rate:<8.1f} | {tp_rate:<10.1f}% | {sl_rate:<8.1f}% | {rr:<6.2f} | {pf:<6.2f} | {sub['ret_pct'].mean():<12.4f} | {max_dd*100:<6.1f}%")
     print("=" * 100)
 
     for th_label, th in [("strong_buy(0.700)", 0.700), ("buy(0.590)", 0.590), ("watch(0.470)", 0.470)]:

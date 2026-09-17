@@ -9,6 +9,9 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
+# training/配下からでもmodules/を解決できるようにプロジェクトルートをsys.pathへ追加
+import sys
+sys.path.insert(0, r"F:\stockModel")
 import train_model_v8_exp as tm
 from modules.macro_features import load_macro_slim5
 from modules.stock_features import compute_stock_features

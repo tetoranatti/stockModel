@@ -67,30 +67,14 @@ header h1 {
   border: 1px solid #ef4444;
 }
 
-/* 大口フローシグナルバッジ */
+/* 大口フローシグナルバッジ: サイジング判断には不使用の参考表示のため、常に目立たない
+   単一トーンにする(以前はレベル別に色分け・点滅していたが、実際の挙動と乖離するため廃止)。 */
 .flow-badge-normal {
   background: rgba(148, 163, 184, 0.15);
   color: #94a3b8;
-  border: 1px solid #64748b;
-}
-
-.flow-badge-surge {
-  background: rgba(245, 158, 11, 0.25);
-  color: #fbbf24;
-  border: 1px solid #f59e0b;
-  animation: blink 2s infinite;
-}
-
-.flow-badge-jnet {
-  background: rgba(168, 85, 247, 0.25);
-  color: #c084fc;
-  border: 1px solid #a855f7;
-}
-
-.flow-badge-quiet {
-  background: rgba(100, 116, 139, 0.2);
-  color: #94a3b8;
   border: 1px solid #475569;
+  font-weight: normal;
+  opacity: 0.85;
 }
 
 /* 資金・リスク入力 */

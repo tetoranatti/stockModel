@@ -7,6 +7,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, Sampler
 
+# training/配下からでもmodules/を解決できるようにプロジェクトルートをsys.pathへ追加
+import sys
+sys.path.insert(0, r"F:\stockModel")
 from modules.model_arch import DualStream_GRU_PreLN_Transformer
 from modules.macro_features import load_macro_slim5
 from modules.stock_features import compute_stock_features, STOCK_FEATURE_COLS

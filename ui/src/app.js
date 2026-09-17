@@ -6,7 +6,7 @@ const { clipboard } = require('electron');
 // 修正後: index.html起点に合わせて ./src/ を指定
 const { fetchStockDetails } = require('./src/api');
 const { initChart, updateChartData } = require('./src/chart');
-const { loadScreenedCsv, loadMacroFlowSignal } = require('./src/data');
+const { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta } = require('./src/data');
 const { runFullPipeline } = require('./src/runner');
 
 // プロジェクトルート（F:\stockModel）へのパス
@@ -29,43 +29,49 @@ function logTerm(text, type = 'normal') {
   term.scrollTop = term.scrollHeight;
 }
 
-function updateMacroRegimeBadge(records) {
+// ヘッダーの地合いバッジ: run_dynamic_regime_screening_v8.py が実際にK(採用銘柄数)と
+// サイズ倍率を決めるのに使っている地合い危険度モデル(regime_risk)の出力をそのまま表示する。
+// 以前はCSVから独自ヒューリスティック(STRONG BUY比率等)で判定していたが、実際の
+// スクリーニング挙動と乖離するため廃止し、モデルの生スコアに同期させた。
+function updateMacroRegimeBadge() {
   const badge = document.getElementById('macro-regime-badge');
-  if (!records || records.length === 0) {
+  const meta = loadScreeningMeta(BASE_DIR);
+  const regimeRisk = meta && meta.regimeRisk;
+
+  if (!regimeRisk) {
     badge.className = 'regime-badge regime-neutral';
-    badge.innerText = '● データなし';
+    badge.innerText = '● 地合い危険度: データなし';
     return;
   }
-  const strongCount = records.filter(r => r.action.includes('STRONG BUY')).length;
-  const strongRatio = strongCount / records.length;
-  const avgEv = records.slice(0, 30).reduce((acc, r) => acc + (parseFloat(r.ev) || 0), 0) / Math.min(30, records.length);
 
-  if (strongRatio >= 0.15 || avgEv >= 0.65) {
+  const scoreStr = (parseFloat(regimeRisk.score) || 0).toFixed(2);
+  const sizeStr = `×${(parseFloat(regimeRisk.size_mult) || 1.0).toFixed(2)}`;
+  const label = `● 地合い危険度 ${regimeRisk.zone} (score=${scoreStr}) K=${regimeRisk.k} サイズ${sizeStr}`;
+
+  if (regimeRisk.zone === 'SAFE') {
     badge.className = 'regime-badge regime-bull';
-    badge.innerText = `● BULL レジーム (ロング積極 / 期待値良好)`;
-  } else if (strongRatio >= 0.05 || avgEv >= 0.35) {
-    badge.className = 'regime-badge regime-neutral';
-    badge.innerText = `● NEUTRAL レジーム (押し目選定 / 打診推奨)`;
-  } else {
+  } else if (regimeRisk.zone === 'DANGER') {
     badge.className = 'regime-badge regime-bear';
-    badge.innerText = `● BEAR レジーム (ボラ警戒 / ロット抑制)`;
+  } else {
+    badge.className = 'regime-badge regime-neutral';
   }
+  badge.innerText = label;
+  badge.title = meta.updatedAt ? `更新: ${meta.updatedAt}` : '';
 }
 
+// 大口手口フロー(CTA/JNET)バッジ: バックテストの結果、サイジング判断には現在使用していない
+// (no_flowで確定済み)。データ収集・表示のみ継続する参考情報として、目立たないトーンに格下げする。
 function updateMacroFlowBadge() {
   const badge = document.getElementById('macro-flow-badge');
   if (!badge) return;
   const data = loadMacroFlowSignal(BASE_DIR);
+  badge.className = 'regime-badge flow-badge-normal';
+  badge.title = 'このシグナルは現在サイジング判断には使用していません(参考表示のみ)';
   if (!data) {
-    badge.innerText = '⚡ フロー待機中';
-    badge.className = 'regime-badge flow-badge-normal';
+    badge.innerText = '⚡ フロー: データなし (参考)';
     return;
   }
-  badge.innerText = `${data.signal_desc} (${data.badge_text})`;
-  if (data.level === 'CTA_SURGE') badge.className = 'regime-badge flow-badge-surge';
-  else if (data.level === 'JNET_HIGH') badge.className = 'regime-badge flow-badge-jnet';
-  else if (data.level === 'QUIET') badge.className = 'regime-badge flow-badge-quiet';
-  else badge.className = 'regime-badge flow-badge-normal';
+  badge.innerText = `⚡ ${data.signal_desc} (参考)`;
 }
 
 function updatePositionSize(item) {
@@ -280,7 +286,7 @@ function loadCsvData() {
   rawRecords = records;
   filteredRecords = [...rawRecords];
   document.getElementById('summary-text').innerText = `表示中: ${filteredRecords.length} 銘柄`;
-  updateMacroRegimeBadge(rawRecords);
+  updateMacroRegimeBadge();
   updateMacroFlowBadge();
   renderTable(filteredRecords);
   logTerm(`最新CSVをロード完了: ${rawRecords.length}件`, 'info');

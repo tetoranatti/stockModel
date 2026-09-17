@@ -115,4 +115,22 @@ function loadMacroFlowSignal(baseDir) {
   }
 }
 
-module.exports = { loadScreenedCsv, loadMacroFlowSignal };
+// run_dynamic_regime_screening_v8.py が出力する data/screening_results_v8.json を読む。
+// 実際にK(採用銘柄数)・サイズ倍率を左右している地合い危険度モデルの出力(regime_risk)は
+// このファイルにしかないため、CSVとは別に取得する。
+function loadScreeningMeta(baseDir) {
+  const jsonPath = path.join(baseDir, 'data', 'screening_results_v8.json');
+  if (!fs.existsSync(jsonPath)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    return {
+      updatedAt: data.updated_at || '',
+      macroRegime: data.macro_regime || null,
+      regimeRisk: data.regime_risk || null,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+module.exports = { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta };

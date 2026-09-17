@@ -37,21 +37,42 @@ function runPythonScript(baseDir, scriptName, onLog) {
   });
 }
 
+// 日次自動実行対象のスクリプトは pipeline/ 配下に置いている(役割別フォルダ整理)
+const PIPELINE_DIR = 'pipeline';
+
 async function runFullPipeline(baseDir, onLog) {
   // 株価・信用残・日経225等のJ-Quantsキャッシュを最新化(run_dynamic_regime_screening_v8.py
   // が必須で読みに行くため、必ず最初に完了させておく必要がある)
-  await runPythonScript(baseDir, 'build_jquants_cache.py', onLog);
+  await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'build_jquants_cache.py'), onLog);
 
-  await runPythonScript(baseDir, 'update_daily_features_v6.py', onLog);
+  await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'update_daily_features_v6.py'), onLog);
 
-  if (fs.existsSync(path.join(baseDir, 'parse_flow_signal.py'))) {
-    await runPythonScript(baseDir, 'parse_flow_signal.py', onLog);
+  // VIX/USD-JPY(地合い危険度モデルの特徴量)を更新。更新を怠るとffill()で古い値を
+  // 使い続けてしまいエラーが出ないため、必ず日次で実行する。
+  if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'update_fx_vix_cache.py'))) {
+    await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'update_fx_vix_cache.py'), onLog);
   }
-  if (fs.existsSync(path.join(baseDir, 'check_sector_sentiment.py'))) {
-    await runPythonScript(baseDir, 'check_sector_sentiment.py', onLog);
+
+  if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'parse_flow_signal.py'))) {
+    await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'parse_flow_signal.py'), onLog);
+  }
+  if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'check_sector_sentiment.py'))) {
+    await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'check_sector_sentiment.py'), onLog);
   }
 
-  await runPythonScript(baseDir, 'run_dynamic_regime_screening_v8.py', onLog);
+  await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'run_dynamic_regime_screening_v8.py'), onLog);
+
+  // 各種日次キャッシュの抜け漏れを埋める安全網。既存日はスキップする作りなので
+  // 通常はほぼ何もせず一瞬で終わる(実行を忘れた日があった場合だけ効く)。
+  if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'backfill_sector_sentiment.py'))) {
+    await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'backfill_sector_sentiment.py'), onLog);
+  }
+  if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'backfill_regime_risk_cache.py'))) {
+    await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'backfill_regime_risk_cache.py'), onLog);
+  }
+  if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'backfill_flow_signal_cache.py'))) {
+    await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'backfill_flow_signal_cache.py'), onLog);
+  }
 }
 
 module.exports = { runFullPipeline };

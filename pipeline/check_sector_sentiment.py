@@ -246,6 +246,20 @@ def main():
     print("【セクターショック検知 & センチメント自動解析 (日英ハイブリッド版)】")
     print("=" * 80)
 
+    # 同日中に既に実行済みなら、Gemini APIの無駄撃ちを避けてスキップする。
+    # (全自動更新ボタンを同日中に複数回押した場合や、リトライ実行などで
+    #  1日に何度もニュース評価が走ってしまうのを防ぐ。日をまたげば通常通り実行する。)
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    if os.path.exists(DAILY_CACHE_CSV):
+        try:
+            cached_dates = pd.read_csv(DAILY_CACHE_CSV, encoding='utf-8-sig')["date"].unique()
+            if today_str in cached_dates:
+                print(f"[*] 本日({today_str})分は既に評価済みのためスキップします"
+                      f"(Gemini API呼び出しなし)。再評価する場合は{DAILY_CACHE_CSV}の該当日行を削除してください。")
+                return
+        except Exception:
+            pass
+
     sector_news = {}
     for sec_key, conf in SECTOR_CONFIGS.items():
         news_items = fetch_sector_news(conf, max_items=5)

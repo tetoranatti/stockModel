@@ -7,6 +7,9 @@ import numpy as np
 import pandas as pd
 import torch
 
+# pipeline/配下からでもmodules/を解決できるようにプロジェクトルートをsys.pathへ追加
+import sys
+sys.path.insert(0, r"F:\stockModel")
 from modules.data_loader import (
     load_screener_tickers,
     fetch_all_tickers_data,
