@@ -5,6 +5,7 @@ import time
 import datetime
 import urllib.parse
 import feedparser
+import pandas as pd
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -14,6 +15,11 @@ from google.genai import types
 # =============================================================================
 BASE_DIR = r"F:\stockModel"
 OUTPUT_JSON = os.path.join(BASE_DIR, "data", "sector_sentiment.json")
+# 日次キャッシュ: 実行日ごとのセクター評価を蓄積し、将来のバックテストで
+# 「その日時点のセクターセンチメント」を特徴量として使えるようにする。
+# (Google News RSSは直近数日分しか取れないため過去分の遡及取得は不可。
+#  このキャッシュは今後実行するたびに1日分ずつ積み上がっていく。)
+DAILY_CACHE_CSV = os.path.join(BASE_DIR, "data", "sector_sentiment_daily_cache.csv")
 load_dotenv()
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -72,13 +78,15 @@ SECTOR_CONFIGS = {
     },
     "shipping": {
         "name": "海運・物流",
-        "query": "コンテナ船 運賃市況 OR スエズ運河 紅海 OR バルチック海運指数 急変動",
+        # 旧クエリ(バルチック海運指数 急変動 等)はヒット率が低かったため、より一般的な語に拡張
+        "query": "海運 運賃 OR 海運株 OR コンテナ船 需給 OR 物流 コスト OR スエズ運河 紅海",
         "lang": "ja",
         "tickers": ["9101", "9104", "9107", "9064"]
     },
     "retail_inbound": {
         "name": "小売・消費・インバウンド",
-        "query": "インバウンド 消費 OR 訪日外国人 免税改定 OR 百貨店 免税売上 OR 個人消費 節約志向",
+        # 旧クエリ(訪日外国人 免税改定 等)はヒット率が低かったため、より一般的な語に拡張
+        "query": "インバウンド 消費 OR 訪日外国人 OR 百貨店 売上 OR 小売 業績 OR 個人消費",
         "lang": "ja",
         "tickers": ["9983", "3382", "3092", "8267", "9843", "3086", "2782"]
     },
@@ -270,8 +278,10 @@ def main():
                 "summary": "判定不能またはデータなし",
                 "action_advice": "通常"
             }
+            sec_eval["is_fallback"] = True
         else:
             sec_eval = eval_results[sec_key]
+            sec_eval["is_fallback"] = False
         sec_eval["name"] = conf["name"]
         sec_eval["tickers"] = conf["tickers"]
         final_output[sec_key] = sec_eval
@@ -286,6 +296,41 @@ def main():
         json.dump(final_output, f, ensure_ascii=False, indent=2)
 
     print(f"\n[+] 評価結果を保存しました: {OUTPUT_JSON}")
+
+    append_to_daily_cache(final_output)
+
+
+def append_to_daily_cache(final_output):
+    """今日分のセクター評価をDAILY_CACHE_CSVに追記する。同日に複数回実行した場合は
+    その日の既存行を最新の評価で置き換える(重複防止)。"""
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    rows = []
+    for sec_key, sec_eval in final_output.items():
+        rows.append({
+            "date": today_str,
+            "sector_key": sec_key,
+            "sector_name": sec_eval.get("name", ""),
+            "score": sec_eval.get("score", 0.0),
+            "shock_detected": sec_eval.get("shock_detected", False),
+            "category": sec_eval.get("category", ""),
+            "duration": sec_eval.get("duration", ""),
+            "summary": sec_eval.get("summary", ""),
+            "action_advice": sec_eval.get("action_advice", ""),
+            "is_fallback": sec_eval.get("is_fallback", False),
+        })
+    new_df = pd.DataFrame(rows)
+
+    if os.path.exists(DAILY_CACHE_CSV):
+        existing_df = pd.read_csv(DAILY_CACHE_CSV, encoding='utf-8-sig')
+        existing_df = existing_df[existing_df["date"] != today_str]
+        combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+    else:
+        combined_df = new_df
+
+    combined_df = combined_df.sort_values(["date", "sector_key"])
+    combined_df.to_csv(DAILY_CACHE_CSV, index=False, encoding='utf-8-sig')
+    n_days = combined_df["date"].nunique()
+    print(f"[+] 日次キャッシュに追記しました: {DAILY_CACHE_CSV} (累計{n_days}日分)")
 
 if __name__ == "__main__":
     main()

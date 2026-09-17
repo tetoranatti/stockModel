@@ -55,7 +55,7 @@ def detect_macro_regime(macro_df):
     cta_mom = latest_macro['cta_momentum']
     cta_raw = latest_macro.get('cta_net_futures', 0.0)
 
-    is_bear_regime = (pin_dist < -1.0) or (cta_norm < -0.8 and cta_mom < 0.0)
+    is_bear_regime = bool((pin_dist < -1.0) or (cta_norm < -0.8 and cta_mom < 0.0))
 
     flow_level = "NORMAL"
     cta_share = 0.0

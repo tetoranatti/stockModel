@@ -31,7 +31,10 @@ if not JQUANTS_API_KEY:
 JQUANTS_BASE_URL = "https://api.jquants.com/v2"
 
 MIN_TURNOVER = 10e8  # 10億円 (v8基準)
-FETCH_DAYS = 45      # 日次スクリーニング用の直近営業日数
+# compute_stock_features()のrolling_betaが90営業日窓を使うため、
+# run_dynamic_regime_screening_v8.py側のSEQ_LEN(10)+95日フィルタを満たすには
+# 最低105営業日分が必要。45日だと全銘柄がフィルタで弾かれ0件になる(実際に発生した不具合)。
+FETCH_DAYS = 130     # 日次スクリーニング用の直近営業日数
 YEARS_BACK = 3       # 学習用データセットの期間 (年)
 
 FETCH_WORKERS = 8          # 並列フェッチのスレッド数

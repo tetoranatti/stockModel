@@ -26,6 +26,14 @@ from modules.risk_manager import (
     evaluate_screening_gate,
     calculate_target_stop_levels
 )
+from modules.regime_risk_model import (
+    add_regime_features,
+    compute_breadth_5d,
+    load_regime_risk_ensemble,
+    predict_regime_risk,
+    determine_regime_zone,
+    append_regime_risk_cache,
+)
 from modules.stock_features import compute_stock_features
 from modules.cross_sectional_features import (
     apply_log_transform,
@@ -40,12 +48,14 @@ BASE_DIR = r"F:\stockModel"
 #    最新の閾値表はrun_event_driven_backtest_v8_exp.pyの実行結果を参照。
 ENSEMBLE_SEEDS = [42, 43, 44, 45, 46]
 MODEL_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"swing_model_v8_ensemble_seed{s}.pt") for s in ENSEMBLE_SEEDS]
+REGIME_RISK_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"regime_risk_model_seed{s}.pt") for s in ENSEMBLE_SEEDS]
 OUTPUT_CSV = os.path.join(BASE_DIR, "final_regime_screened_v8.csv")
 OUTPUT_JSON = os.path.join(BASE_DIR, "data", "screening_results_v8.json")
 
 MIN_TURNOVER = 10e8
 SEQ_LEN = 10
 MIN_CROSS_SECTION = 20
+BASE_K = 20  # 地合い危険度NEUTRAL時の採用銘柄数(STRONG BUY+BUY合算の上限)
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -137,6 +147,31 @@ def main():
     cross_mean, cross_std = compute_cross_sectional_stats(per_ticker_log, stock_cols)
     valid_dates = valid_cross_section_dates(per_ticker_log, stock_cols, MIN_CROSS_SECTION)
 
+    # --- 地合い危険度モデル: 日次集約STOP率(個別銘柄ではなく市場全体のリスク)を予測し、
+    # 採用銘柄数K・ロットサイズを調整する ---
+    regime_zone_info = {"zone": "NEUTRAL", "k": BASE_K, "size_mult": 1.0}
+    regime_risk_score = None
+    missing_regime = [p for p in REGIME_RISK_WEIGHTS_LIST if not os.path.exists(p)]
+    if missing_regime:
+        print(f"[!] 地合い危険度モデルの重みが見つからないためNEUTRAL固定で継続: {missing_regime}")
+    else:
+        try:
+            macro_regime_df = add_regime_features(macro_df)
+            per_ticker_ret1d = {t: df['stock_ret_1d'] for t, df in per_ticker_df.items()}
+            macro_regime_df['breadth_5d'] = compute_breadth_5d(per_ticker_ret1d, macro_regime_df.index)
+            latest_regime_row = macro_regime_df.iloc[-1]
+
+            regime_models, regime_cols, feat_mean, feat_std = load_regime_risk_ensemble(REGIME_RISK_WEIGHTS_LIST)
+            regime_risk_score = predict_regime_risk(regime_models, regime_cols, feat_mean, feat_std, latest_regime_row)
+            regime_zone_info = determine_regime_zone(regime_risk_score, base_k=BASE_K)
+            print(f"[★] 地合い危険度スコア: {regime_risk_score:.3f} -> {regime_zone_info['zone']}ゾーン "
+                  f"(K={regime_zone_info['k']}, サイズ倍率={regime_zone_info['size_mult']:.2f})\n")
+
+            n_cached_days = append_regime_risk_cache(latest_regime_row.name, regime_risk_score, regime_zone_info)
+            print(f"[*] 地合い危険度スコアを日次キャッシュに追記(累計{n_cached_days}日分)\n")
+        except Exception as e:
+            print(f"[!] 地合い危険度モデルの推論に失敗したためNEUTRAL固定で継続: {e}")
+
     candidates = []
     print(f"[*] アンサンブル推論を開始...")
 
@@ -187,12 +222,14 @@ def main():
 
             ev_adj = round(2.0 * p_win_adj - 1.0 * p_stop_adj, 3)
 
-            # ロット調整係数（フローシグナル反映）
+            # ロット調整係数（セクターセンチメント + 地合い危険度ゾーンによる調整）
             margin_ratio_val = float(m_item.get("margin_ratio", 1.0) if m_item else 1.0)
             size_factor, size_reason = determine_sizing_factor(
-                ret_1d, is_bear_candle, days_to_clear, margin_ratio_val, sec_advice,
-                flow_level=regime['flow_level']
+                ret_1d, is_bear_candle, days_to_clear, margin_ratio_val, sec_score
             )
+            if regime_zone_info['size_mult'] != 1.0:
+                size_factor = round(size_factor * regime_zone_info['size_mult'], 2)
+                size_reason += f" ＋ 地合い危険度{regime_zone_info['zone']}({regime_zone_info['size_mult']:.2f}倍)"
 
             # ゲート採否判定（v8閾値反映）
             action, gate_reason = evaluate_screening_gate(
@@ -212,7 +249,7 @@ def main():
                 flow_level=regime['flow_level']
             )
 
-            target_price, stop_price = calculate_target_stop_levels(curr_close, curr_atr, action)
+            target_price, stop_price = calculate_target_stop_levels(curr_close, curr_atr)
 
             candidates.append({
                 'ticker': t,
@@ -255,12 +292,27 @@ def main():
     priority_map = {
         "🔥 STRONG BUY": 1,
         "🎯 BUY": 2,
-        "⚠️ SHORT / HEDGE": 3,
-        "👀 WATCH": 4,
-        "⏸️ WAIT": 5
+        "👀 WATCH": 3,
+        "⏸️ WAIT": 4
     }
     res_df['priority'] = res_df['action'].map(priority_map)
     res_df = res_df.sort_values(by=['priority', 'ev_score'], ascending=[True, False]).drop(columns=['priority'])
+
+    # 注: セクター単位のK上限(sec_score<0のセクターを3件までに絞る案)は、3ヶ月分の
+    # 実データでバックテストしたところPFを明確に悪化させた(2.02->1.82、th=0.46)ため不採用。
+    # 原因切り分けの結果、連続的なサイズ重み付け(determine_sizing_factor内)自体は無害
+    # (むしろ微増)だったが、K上限はPFモデルが正しく評価していた優良銘柄を機械的に
+    # 除外してしまっていた。そのためサイズ重み付けのみ残し、K上限は導入しない。
+
+    # --- 地合い危険度ゾーンによるK(採用銘柄数)制限: STRONG BUY/BUYをev_score順にK件まで
+    # 残し、それを超える分はWATCHへ降格する(情報は保持しつつ採用件数だけ絞る) ---
+    k_final = regime_zone_info['k']
+    actionable_mask = res_df['action'].isin(["🔥 STRONG BUY", "🎯 BUY"])
+    actionable_idx = res_df[actionable_mask].index
+    demote_idx = actionable_idx[k_final:]
+    if len(demote_idx) > 0:
+        res_df.loc[demote_idx, 'reason'] = res_df.loc[demote_idx, 'reason'] + f" ＋ 地合い危険度{regime_zone_info['zone']}によりK={k_final}超過で降格"
+        res_df.loc[demote_idx, 'action'] = "👀 WATCH"
 
     res_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8-sig')
 
@@ -275,6 +327,12 @@ def main():
                 "cta_share": regime['cta_share'],
                 "jnet_ratio": regime['jnet_ratio'],
                 "flow_desc": regime['flow_desc']
+            },
+            "regime_risk": {
+                "score": regime_risk_score,
+                "zone": regime_zone_info['zone'],
+                "k": regime_zone_info['k'],
+                "size_mult": regime_zone_info['size_mult'],
             },
             "results": res_df.to_dict(orient="records")
         }
@@ -295,6 +353,8 @@ def main():
         print(res_df.head(15)[show_cols].to_string(index=False))
 
     print("=" * 95)
+    if regime_risk_score is not None:
+        print(f"[*] 地合い危険度: {regime_risk_score:.3f} ({regime_zone_info['zone']}ゾーン, K={regime_zone_info['k']}, サイズ倍率={regime_zone_info['size_mult']:.2f})")
     print(f"[*] 判定サマリ: {res_df['action'].value_counts().to_dict()}")
     print(f"[+] 保存完了: {OUTPUT_CSV}")
 

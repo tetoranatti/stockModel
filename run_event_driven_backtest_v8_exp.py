@@ -153,6 +153,7 @@ def run_backtest():
             vals_s_norm = norm_s.values
             vals_m = df[macro_cols].values
             closes, highs, lows, atrs = df['Close'].values, df['High'].values, df['Low'].values, df['ATR'].values
+            betas = df['rolling_beta'].values
 
             indices = list(range(split_idx, n_samples - holding_period))
             if not indices:
@@ -198,6 +199,7 @@ def run_backtest():
                     'exit_date': df.index[idx + h_days],
                     'p_win': p_win,
                     'p_stop': p_stop,
+                    'beta': betas[idx],
                     'ret_pct': ret_pct,
                     'exit_reason': exit_reason,
                     'holding_days': h_days
@@ -254,17 +256,40 @@ def run_backtest():
     print("【p_stop 閾値スキャン(risk_manager.pyのヘッジ判定 p_stop>=0.500 再検証用)】")
     print(f"  条件: p_stop >= th かつ p_stop > p_win のサブセットの実際の平均リターン")
     print("=" * 100)
-    print(f"{'p_stop th':<12} | {'件数':<6} | {'勝率 (%)':<8} | {'平均ret_pct':<12} | {'損切率':<8}")
-    print("-" * 60)
+    print(f"{'p_stop th':<12} | {'件数':<6} | {'勝率 (%)':<8} | {'平均ret_pct':<12} | {'損切率':<8} | {'平均p_win':<10} | {'平均p_neutral':<12}")
+    print("-" * 90)
     ps_lo, ps_hi = df_all['p_stop'].quantile(0.50), df_all['p_stop'].quantile(0.99)
     for th in np.linspace(ps_lo, ps_hi, 10):
         sub = df_all[(df_all['p_stop'] >= th) & (df_all['p_stop'] > df_all['p_win'])].copy()
         if len(sub) == 0:
-            print(f"{th:<12.3f} | {0:<6} | {'-':<8} | {'-':<12} | {'-':<8}")
+            print(f"{th:<12.3f} | {0:<6} | {'-':<8} | {'-':<12} | {'-':<8} | {'-':<10} | {'-':<12}")
             continue
         win_rate = (sub['ret_pct'] > 0).mean() * 100.0
         sl_rate = sub['exit_reason'].str.startswith('STOP_LOSS').mean() * 100.0
-        print(f"{th:<12.3f} | {len(sub):<6d} | {win_rate:<8.1f} | {sub['ret_pct'].mean():<12.4f} | {sl_rate:<8.1f}%")
+        p_win_avg = sub['p_win'].mean()
+        p_neutral_avg = 1.0 - sub['p_stop'].mean() - p_win_avg
+        print(f"{th:<12.3f} | {len(sub):<6d} | {win_rate:<8.1f} | {sub['ret_pct'].mean():<12.4f} | {sl_rate:<8.1f}% | {p_win_avg:<10.3f} | {p_neutral_avg:<12.3f}")
+    print("=" * 100)
+
+    # p_win>=0.6 かつ p_stop>=0.75 は p_win+p_stop+p_neutral=1 に反するため同時成立不可。
+    # 「p_win/p_stopが両方高い(=p_neutralが低い、大きな値動きを予想)」という意図を汲み、
+    # p_neutralの低さ + net bullish(p_win>p_stop) + 低ベータの3軸で代わりに検証する。
+    print(f"\n{'='*100}")
+    print("【修正版3軸判定: p_neutral低(高確信度) + p_win>p_stop(net bullish) + beta<=1.0】")
+    print("=" * 100)
+    print(f"{'p_neutral上限':<14} | {'件数':<6} | {'勝率 (%)':<8} | {'PF':<6} | {'MaxDD':<7}")
+    print("-" * 60)
+    p_neutral_all = 1.0 - df_all['p_win'] - df_all['p_stop']
+    for pn_th in [0.30, 0.20, 0.15, 0.10, 0.05]:
+        sub = df_all[(p_neutral_all <= pn_th) & (df_all['p_win'] > df_all['p_stop']) & (df_all['beta'] <= 1.0)].copy()
+        if len(sub) == 0:
+            print(f"{pn_th:<14.2f} | {0:<6} | {'-':<8} | {'-':<6} | {'-':<7}")
+            continue
+        wins, losses = sub[sub['ret_pct'] > 0], sub[sub['ret_pct'] < 0]
+        win_rate = len(wins) / len(sub) * 100.0
+        pf = wins['ret_pct'].sum() / abs(losses['ret_pct'].sum()) if len(losses) > 0 and losses['ret_pct'].sum() != 0 else float('inf')
+        max_dd = compute_max_drawdown(simulate_equity_curve(sub))
+        print(f"{pn_th:<14.2f} | {len(sub):<6d} | {win_rate:<8.1f} | {pf:<6.2f} | {max_dd*100:<6.1f}%")
     print("=" * 100)
 
 def print_monthly_breakdown(df_all, th, label):
