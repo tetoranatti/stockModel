@@ -12,6 +12,7 @@ Trueにしたものだけで構成される(既存を減らす実験も、候補
 """
 import os
 import sys
+import time
 import random
 import numpy as np
 import pandas as pd
@@ -21,11 +22,31 @@ import torch.nn as nn
 sys.path.insert(0, r"F:\stockModel")
 sys.path.insert(0, r"F:\stockModel\research")
 
+try:
+    sys.stdout.reconfigure(line_buffering=True)  # バックグラウンド実行時、ログファイルへの
+    sys.stderr.reconfigure(line_buffering=True)  # 書き出しがブロックバッファリングで遅延するのを防ぐ
+except Exception:
+    pass
+
+_SCRIPT_START = time.time()
+
+
+def elapsed():
+    s = time.time() - _SCRIPT_START
+    m, s = divmod(int(s), 60)
+    h, m = divmod(m, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def log(msg):
+    print(f"[{elapsed()}] {msg}", flush=True)
+
+
 from training.train_model_v8_exp import (
     UniverseDataset, SameTickerBatchSampler, NearPairRankingLoss, _simulate_ret_pct,
     MAX_PAIR_GAP, UNIVERSE_PATH, MIN_CROSS_SECTION,
 )
-from modules.model_arch import DualStream_GRU_PreLN_Transformer
+from modules.model_arch import DualStream_GRU_PreLN_Transformer, GRUOnlyModel, TransformerOnlyModel
 from modules.macro_features import load_macro_slim5
 from modules.stock_features import STOCK_FEATURE_COLS
 from modules.cross_sectional_features import (
@@ -94,11 +115,22 @@ FEATURE_TOGGLES = {
     'rolling_beta_x_cta_net_norm_x_market_vol_regime': True,
 }
 
+MODEL_ARCH = "dual_stream"  # "dual_stream"(本番) / "gru_only" / "transformer_only"
 MODEL_HIDDEN_DIM = 20   # 本番と同じ既定値。超軽量版を試すならここを変える(num_headsで割り切れる値に)
-MODEL_NUM_HEADS = 1     # 本番と同じ既定値
+MODEL_NUM_HEADS = 1     # 本番と同じ既定値。gru_onlyでは無視される
+USE_CROSS_FFN = False   # Cross-Attention後にFFNサブレイヤーを追加するか(dual_stream限定、既定False=本番と同じ)
+USE_FINAL_NORM = False  # Cross-Attention後・pooling前に最終LayerNormを追加するか(dual_stream限定、既定False=本番と同じ)
 SEEDS = [42, 43, 44]    # 複数シードでmean/stdを見る(組み合わせによってシード間のばらつきが
                         # 変わるか比較したい場合はここを増減する。単発でよければ[42]だけにする)
 # ============================================================================
+
+ARCH_CLASSES = {
+    "dual_stream": DualStream_GRU_PreLN_Transformer,
+    "gru_only": GRUOnlyModel,
+    "transformer_only": TransformerOnlyModel,
+}
+if MODEL_ARCH not in ARCH_CLASSES:
+    raise ValueError(f"MODEL_ARCH='{MODEL_ARCH}'は未対応です。選択肢: {list(ARCH_CLASSES)}")
 
 # 特徴量カタログ: side='stock'(銘柄横断正規化される側)/'macro'(全銘柄共通の日次値側)、
 # source=どこから値を取得するか(stock_pool/macro_pool/margin_pool/sector_pool/computedのいずれか)
@@ -312,8 +344,15 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label):
     train_loader = torch.utils.data.DataLoader(train_ds, batch_sampler=SameTickerBatchSampler(tr_tid, 128, shuffle=True), pin_memory=True)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_sampler=SameTickerBatchSampler(va_tid, 256, shuffle=False), pin_memory=True)
 
-    model = DualStream_GRU_PreLN_Transformer(stock_dim=len(s_cols), macro_dim=len(m_cols), hidden_dim=MODEL_HIDDEN_DIM,
-                                              num_heads=MODEL_NUM_HEADS, num_classes=3, dropout=0.2).to(DEVICE)
+    arch_cls = ARCH_CLASSES[MODEL_ARCH]
+    model_kwargs = dict(stock_dim=len(s_cols), macro_dim=len(m_cols), hidden_dim=MODEL_HIDDEN_DIM,
+                         num_heads=MODEL_NUM_HEADS, num_classes=3, dropout=0.2)
+    if MODEL_ARCH == "dual_stream":
+        model_kwargs['use_cross_ffn'] = USE_CROSS_FFN
+        model_kwargs['use_final_norm'] = USE_FINAL_NORM
+    # gru_only/transformer_onlyにはuse_cross_ffn/use_final_norm概念が無いので渡さない
+    # (**kwargsを持つので万一渡しても無視されるが、意図を明確にするため分岐している)
+    model = arch_cls(**model_kwargs).to(DEVICE)
     criterion = NearPairRankingLoss(max_gap=MAX_PAIR_GAP)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.0002, weight_decay=3e-2)
 
@@ -321,6 +360,7 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label):
     patience, epochs = 7, 30
     for epoch in range(1, epochs + 1):
         model.train()
+        total_tr, n_tr_batches = 0.0, 0
         for b_xs, b_xm, b_y, b_tid, b_tidx in train_loader:
             b_xs, b_xm, b_y, b_tidx = (b_xs.to(DEVICE), b_xm.to(DEVICE), b_y.to(DEVICE), b_tidx.to(DEVICE))
             optimizer.zero_grad()
@@ -328,6 +368,9 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label):
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            total_tr += loss.item(); n_tr_batches += 1
+        train_loss = total_tr / n_tr_batches if n_tr_batches else float('inf')
+
         model.eval()
         total_va, n_batches = 0.0, 0
         with torch.no_grad():
@@ -336,14 +379,18 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label):
                 loss = criterion(model(b_xs, b_xm), b_y, b_tidx)
                 total_va += loss.item(); n_batches += 1
         val_loss = total_va / n_batches if n_batches else float('inf')
+
         if val_loss < best_val_loss:
             best_val_loss, best_state, patience_cnt = val_loss, {k: v.clone() for k, v in model.state_dict().items()}, 0
+            marker = " <- best"
         else:
             patience_cnt += 1
-            if patience_cnt >= patience:
-                break
+            marker = f" (patience {patience_cnt}/{patience})"
+        log(f"  [{label}] epoch {epoch:2d}/{epochs}: train_loss={train_loss:.4f} val_loss={val_loss:.4f}{marker}")
+        if patience_cnt >= patience:
+            break
     model.load_state_dict(best_state); model.eval()
-    print(f"  [+] [{label} seed={seed}] 学習完了 best_val_loss={best_val_loss:.4f}")
+    log(f"[+] [{label} seed={seed}] 学習完了 best_val_loss={best_val_loss:.4f}")
     return model
 
 
@@ -391,7 +438,8 @@ if __name__ == "__main__":
     print(f"[*] テスト側 株{len(TEST_STOCK_COLS)}個 + マクロ{len(TEST_MACRO_COLS)}個 = 計{len(TEST_FEATS)}個")
     print(f"    既存から外した: {sorted(removed_from_baseline) if removed_from_baseline else '(なし)'}")
     print(f"    新規追加した候補: {sorted(added_candidates) if added_candidates else '(なし)'}")
-    print(f"[*] モデル設定: hidden_dim={MODEL_HIDDEN_DIM}, num_heads={MODEL_NUM_HEADS}, seeds={SEEDS}\n")
+    print(f"[*] モデル設定: hidden_dim={MODEL_HIDDEN_DIM}, num_heads={MODEL_NUM_HEADS}, "
+          f"use_cross_ffn={USE_CROSS_FFN}, use_final_norm={USE_FINAL_NORM}, seeds={SEEDS}\n")
 
     with open(UNIVERSE_PATH, "r", encoding="utf-8") as f:
         tickers = [line.strip() for line in f if line.strip()]
@@ -403,17 +451,17 @@ if __name__ == "__main__":
     macro_pool_df = augment_macro_pool_df(get_full_macro_pool_df())
 
     # データセット・バックテストプールはシードに依存しないので、シードループの外で1回だけ構築する
-    print("[*] データセット・バックテストプール構築(シード非依存、1回だけ)...")
+    log("[*] データセット・バックテストプール構築(シード非依存、1回だけ)...")
     tr0, va0 = build_dataset(BASELINE_MACRO_COLS, BASELINE_STOCK_COLS, pool, margin_pool, sector_pool, macro_pool_df)
     tr1, va1 = build_dataset(TEST_MACRO_COLS, TEST_STOCK_COLS, pool, margin_pool, sector_pool, macro_pool_df)
     pool_base = prepare_backtest_pool(BASELINE_MACRO_COLS, BASELINE_STOCK_COLS, pool, margin_pool, sector_pool, macro_pool_df)
     pool_test = prepare_backtest_pool(TEST_MACRO_COLS, TEST_STOCK_COLS, pool, margin_pool, sector_pool, macro_pool_df)
-    print(f"[+] train0={len(tr0[2])} val0={len(va0[2])} / train1={len(tr1[2])} val1={len(va1[2])}")
-    print(f"[+] backtest_pool base={len(pool_base)} test={len(pool_test)}\n")
+    log(f"[+] train0={len(tr0[2])} val0={len(va0[2])} / train1={len(tr1[2])} val1={len(va1[2])}")
+    log(f"[+] backtest_pool base={len(pool_base)} test={len(pool_test)}")
 
     results_base, results_test = [], []
     for seed in SEEDS:
-        print(f"=== seed={seed} ===")
+        log(f"=== seed={seed} ===")
         model_base = train_model(seed, tr0, va0, BASELINE_STOCK_COLS, BASELINE_MACRO_COLS, "ベースライン(既存14固定)")
         d_base = run_backtest_inference(model_base, pool_base)
         model_test = train_model(seed, tr1, va1, TEST_STOCK_COLS, TEST_MACRO_COLS, f"テスト構成({len(TEST_FEATS)}個)")

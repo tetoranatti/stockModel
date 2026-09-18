@@ -43,21 +43,41 @@ class PreLN_SelfAttentionBlock(nn.Module):
         return x
 
 class PreLN_CrossAttentionBlock(nn.Module):
-    def __init__(self, hidden_dim=20, num_heads=1, dropout=0.2):
+    def __init__(self, hidden_dim=20, num_heads=1, dropout=0.2, use_ffn=False, dim_ff=32):
         super().__init__()
         self.norm_q = nn.LayerNorm(hidden_dim)
         self.norm_kv = nn.LayerNorm(hidden_dim)
         self.mha = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
         self.dropout = nn.Dropout(dropout)
 
+        # self-attention側(PreLN_SelfAttentionBlock)と違い、元々はattention+残差のみで
+        # FFNサブレイヤーが無い非対称な構造だった。use_ffn=Trueで対称化できる(2026-09-18追加、
+        # 既定Falseで既存の挙動・チェックポイントとの互換性を維持)。
+        self.use_ffn = use_ffn
+        if use_ffn:
+            self.norm2 = nn.LayerNorm(hidden_dim)
+            self.ffn = nn.Sequential(
+                nn.Linear(hidden_dim, dim_ff),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(dim_ff, hidden_dim)
+            )
+            self.drop2 = nn.Dropout(dropout)
+
     def forward(self, query, key_value):
         q_norm = self.norm_q(query)
         kv_norm = self.norm_kv(key_value)
         attn_out, _ = self.mha(query=q_norm, key=kv_norm, value=kv_norm)
-        return query + self.dropout(attn_out)
+        x = query + self.dropout(attn_out)
+        if self.use_ffn:
+            norm_x2 = self.norm2(x)
+            ffn_out = self.ffn(norm_x2)
+            x = x + self.drop2(ffn_out)
+        return x
 
 class DualStream_GRU_PreLN_Transformer(nn.Module):
-    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2):
+    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2,
+                 use_cross_ffn=False, use_final_norm=False):
         super().__init__()
         self.stock_gru = nn.GRU(stock_dim, hidden_dim, batch_first=True, num_layers=1)
         self.macro_gru = nn.GRU(macro_dim, hidden_dim, batch_first=True, num_layers=1)
@@ -65,8 +85,16 @@ class DualStream_GRU_PreLN_Transformer(nn.Module):
         self.stock_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
         self.macro_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
 
-        self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout)
+        self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout,
+                                                      use_ffn=use_cross_ffn)
         self.pool = DecayPooling(seq_len=10)
+
+        # Pre-LN構造は各サブレイヤーの入力側しか正規化しないため、残差ストリームの出力スケールが
+        # 際限なく成長し得る。use_final_norm=Trueでpooling直前に最終LayerNormを挟める
+        # (2026-09-18追加、既定Falseで既存の挙動・チェックポイントとの互換性を維持)。
+        self.use_final_norm = use_final_norm
+        if use_final_norm:
+            self.final_norm = nn.LayerNorm(hidden_dim)
 
         self.classifier = nn.Sequential(
             nn.Linear(hidden_dim, 16),
@@ -83,6 +111,8 @@ class DualStream_GRU_PreLN_Transformer(nn.Module):
         feat_m = self.macro_encoder(h_m)
 
         fused = self.cross_attn(feat_s, feat_m)
+        if self.use_final_norm:
+            fused = self.final_norm(fused)
         pooled = self.pool(fused)
         return self.classifier(pooled)
 
