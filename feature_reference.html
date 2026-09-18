@@ -1,0 +1,191 @@
+<title>特徴量リファレンス</title>
+<style>
+:root{
+  --bg:#f6f7fb; --surface:#ffffff; --surface-2:#eef1f7; --border:#dde3ee;
+  --text:#12161f; --text-dim:#5b6576;
+  --prod:#0369a1; --pass:#0d9488; --fail:#94a3b8; --warn:#b45309;
+  --prod-bg:#e0f2fe; --pass-bg:#ccfbf1; --fail-bg:#f1f5f9; --warn-bg:#fef3c7;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --sans:"IBM Plex Sans",-apple-system,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b0f17; --surface:#131924; --surface-2:#0e1420; --border:#232c3d;
+    --text:#e8ecf3; --text-dim:#8b96a8;
+    --prod:#38bdf8; --pass:#34d399; --fail:#5b6576; --warn:#f59e0b;
+    --prod-bg:#0c2536; --pass-bg:#0b2a24; --fail-bg:#181f2b; --warn-bg:#2c210a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0f17; --surface:#131924; --surface-2:#0e1420; --border:#232c3d;
+  --text:#e8ecf3; --text-dim:#8b96a8;
+  --prod:#38bdf8; --pass:#34d399; --fail:#5b6576; --warn:#f59e0b;
+  --prod-bg:#0c2536; --pass-bg:#0b2a24; --fail-bg:#181f2b; --warn-bg:#2c210a;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);padding-inline:16px;padding-block:36px;}
+.wrap{max-width:980px;margin:0 auto;}
+header{margin-bottom:32px;}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--prod);margin:0 0 8px;}
+h1{font-size:26px;font-weight:600;margin:0 0 8px;letter-spacing:-0.01em;}
+.sub{color:var(--text-dim);font-size:14px;line-height:1.7;margin:0;max-width:680px;}
+h2{font-size:17px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:10px;}
+h3{font-size:13px;font-weight:600;margin:22px 0 10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;}
+.section{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 20px;margin-bottom:20px;}
+.section-desc{color:var(--text-dim);font-size:13px;line-height:1.6;margin:4px 0 0;}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-dim);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--border);}
+td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.5;}
+tr:last-child td{border-bottom:none;}
+.fname{font-family:var(--mono);font-size:12.5px;white-space:nowrap;color:var(--text);}
+.desc{color:var(--text-dim);}
+.badge{display:inline-block;font-family:var(--mono);font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap;}
+.b-prod{color:var(--prod);background:var(--prod-bg);}
+.b-pass{color:var(--pass);background:var(--pass-bg);}
+.b-fail{color:var(--fail);background:var(--fail-bg);}
+.b-warn{color:var(--warn);background:var(--warn-bg);}
+.tablewrap{overflow-x:auto;}
+.note{font-size:12px;color:var(--text-dim);line-height:1.7;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media (max-width:720px){.grid2{grid-template-columns:1fr;}}
+footer{color:var(--text-dim);font-size:12px;text-align:center;margin-top:30px;padding-top:20px;}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Feature Reference · 2026-09-18</p>
+    <h1>PFモデル・地合いリスクモデル 特徴量リファレンス</h1>
+    <p class="sub">本番採用中の全特徴量と、2026-09-18に検証した新規候補(約40個)の一覧。各候補の判定は6項目スクリーニング(単体IC・regime内IC・no-look-aheadギャップ・年別符号一致率・欠損率・既存との相関)およびNN検証の結果に基づく。</p>
+  </header>
+
+  <div class="section">
+    <h2>① PFモデル(銘柄選別) <span class="badge b-prod">本番 14特徴量</span></h2>
+    <p class="section-desc">train_model_v8_exp.py / DualStream_GRU_PreLN_Transformer が使用。株側は銘柄横断で正規化、マクロ側は全銘柄共通の日次値。</p>
+
+    <h3>株側 9特徴量</h3>
+    <div class="tablewrap"><table>
+      <tr><th>特徴量</th><th>定義</th><th>意味</th></tr>
+      <tr><td class="fname">stock_ret_1d</td><td class="desc">前日比リターン</td><td class="desc">直近1日の値動き</td></tr>
+      <tr><td class="fname">stock_ret_5d</td><td class="desc">5日リターン</td><td class="desc">短期モメンタム</td></tr>
+      <tr><td class="fname">stock_ret_20d</td><td class="desc">20日リターン</td><td class="desc">中期モメンタム</td></tr>
+      <tr><td class="fname">atr_ratio</td><td class="desc">ATR ÷ 終値</td><td class="desc">ボラティリティ相対水準(単体IC最強 -0.185)</td></tr>
+      <tr><td class="fname">rolling_beta</td><td class="desc">対日経ローリング回帰係数</td><td class="desc">市場感応度</td></tr>
+      <tr><td class="fname">vol_ratio_5d</td><td class="desc">出来高 ÷ 5日平均出来高</td><td class="desc">出来高急増度</td></tr>
+      <tr><td class="fname">overnight_gap</td><td class="desc">始値 ÷ 前日終値 − 1</td><td class="desc">寄り付きギャップ</td></tr>
+      <tr><td class="fname">dist_from_high20</td><td class="desc">(終値−20日高値)÷20日高値</td><td class="desc">高値圏への近さ</td></tr>
+      <tr><td class="fname">dist_from_low20</td><td class="desc">(終値−20日安値)÷20日安値</td><td class="desc">安値からの乖離(伸びすぎ度)</td></tr>
+    </table></div>
+
+    <h3>マクロ側 5特徴量</h3>
+    <div class="tablewrap"><table>
+      <tr><th>特徴量</th><th>定義</th><th>意味</th></tr>
+      <tr><td class="fname">pin_dist_ratio</td><td class="desc">(日経終値−オプションpin点)÷pin点</td><td class="desc">SQピン止め効果、単体IC最強(-0.134)</td></tr>
+      <tr><td class="fname">wall_spread</td><td class="desc">Call建玉壁とPut建玉壁の乖離</td><td class="desc">オプション需給の歪み</td></tr>
+      <tr><td class="fname">cta_net_norm</td><td class="desc">CTA先物ネットポジションの60日z-score</td><td class="desc">トレンドフォロー系フローの偏り。単体では弱いがLOWボラ限定で強い</td></tr>
+      <tr><td class="fname">cta_momentum</td><td class="desc">CTAネットポジションの5日変化</td><td class="desc">フローの勢い</td></tr>
+      <tr><td class="fname">nk_ret_norm</td><td class="desc">日経当日リターン(std正規化)</td><td class="desc">市場全体の当日の動き</td></tr>
+    </table></div>
+    <p class="note">性質: 短期(1〜20日)の逆張り寄りシグナル(過熱・高ボラ・高ベータ銘柄ほど弱含み)+オプション建玉/CTAフローの需給ポジショニング。2026-09-18に約40個の新規候補を検証したが、全てNN検証で有意な改善に至らず変更なし。</p>
+  </div>
+
+  <div class="section">
+    <h2>② 地合いリスクモデル <span class="badge b-prod">本番 12特徴量</span></h2>
+    <p class="section-desc">regime_risk_model.py。日次集約(銘柄横断ではなく「その日全体」)でSTOP率を予測し、ポジションサイジングに使用。</p>
+    <div class="tablewrap"><table>
+      <tr><th>特徴量</th><th>定義</th><th>意味</th></tr>
+      <tr><td class="fname">cta_net_norm</td><td class="desc">PFモデルと共通</td><td class="desc">CTAフロー偏り</td></tr>
+      <tr><td class="fname">idx_ret_5d / idx_ret_20d</td><td class="desc">日経5日/20日リターン</td><td class="desc">指数モメンタム</td></tr>
+      <tr><td class="fname">nk_ret_norm</td><td class="desc">PFモデルと共通</td><td class="desc">当日指数リターン</td></tr>
+      <tr><td class="fname">vix_level_norm</td><td class="desc">(VIX−17.0)/4.4</td><td class="desc">VIX水準(恐怖指数)</td></tr>
+      <tr><td class="fname">vix_change_norm</td><td class="desc">VIX前日差 / 1.8</td><td class="desc">VIX急変</td></tr>
+      <tr><td class="fname">breadth_5d</td><td class="desc">銘柄横断5日騰落レシオ的指標</td><td class="desc">市場の広がり</td></tr>
+      <tr><td class="fname">usdjpy_ret_1d / usdjpy_ret_5d</td><td class="desc">ドル円1日/5日リターン</td><td class="desc">為替の動き</td></tr>
+      <tr><td class="fname">usdjpy_vol_20d</td><td class="desc">ドル円20日ボラ</td><td class="desc">為替の荒れ具合</td></tr>
+      <tr><td class="fname">usdjpy_ema_diff</td><td class="desc">EMA(5)−EMA(20)差</td><td class="desc">為替トレンド強度</td></tr>
+      <tr><td class="fname">cta_net_norm_x_low</td><td class="desc">cta_net_norm × LOWボラregime(拡大窓no-lookahead)</td><td>
+        <span class="badge b-pass">2026-09-18追加</span> <span class="desc">唯一の確定改善、AUC 0.621→0.658</span>
+      </td></tr>
+    </table></div>
+  </div>
+
+  <div class="section">
+    <h2>③ 2026-09-18 検証した新規候補</h2>
+    <p class="section-desc">PFモデルへの追加を検討したが、いずれもNN検証まで含めて有効な改善は確認できず、不採用。凡例:
+      <span class="badge b-pass">IC通過</span> 6項目スクリーニングを通過(NN未検証含む) ・
+      <span class="badge b-fail">不合格</span> IC不足/冗長性で却下 ・
+      <span class="badge b-warn">look-ahead汚染</span> 参考値のみ
+    </p>
+
+    <h3>株側候補プール(20個、rs60/gap_strength_5/atr_accelのみIC通過。ただし3特徴量NN 3シードで2/3が悪化)</h3>
+    <div class="tablewrap"><table>
+      <tr><th>特徴量</th><th>定義</th><th>判定</th></tr>
+      <tr><td class="fname">rs60</td><td class="desc">60日対日経相対強度</td><td><span class="badge b-pass">IC通過</span></td></tr>
+      <tr><td class="fname">gap_strength_5</td><td class="desc">直近5日の符号付きギャップ平均</td><td><span class="badge b-pass">IC通過</span></td></tr>
+      <tr><td class="fname">atr_accel</td><td class="desc">ATRの5日前比変化率(ボラ加速度)</td><td><span class="badge b-pass">IC通過</span></td></tr>
+      <tr><td class="fname">gap_avg_5d</td><td class="desc">直近5日のギャップ絶対値平均</td><td><span class="badge b-fail">不合格(atr_ratioと相関0.64)</span></td></tr>
+      <tr><td class="fname">dist_from_high60</td><td class="desc">60日高値からの乖離率</td><td><span class="badge b-fail">不合格(既存と相関0.71)</span></td></tr>
+      <tr><td class="fname">rs20</td><td class="desc">20日対日経相対強度</td><td><span class="badge b-fail">不合格(相関0.74)</span></td></tr>
+      <tr><td class="fname">relative_strength_5d</td><td class="desc">5日対日経相対強度</td><td><span class="badge b-fail">不合格(相関0.68)</span></td></tr>
+      <tr><td class="fname">atr_term_ratio</td><td class="desc">ATR5日平均 ÷ ATR14日</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">volume_zscore</td><td class="desc">出来高の20日z-score</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">momentum_accel</td><td class="desc">5日リターンの5日前との差</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">close_location_value</td><td class="desc">当日レンジ内の終値位置(−1〜+1)</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">body_ratio</td><td class="desc">ローソク実体幅 ÷ レンジ幅</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">adx14</td><td class="desc">ADX(14日、トレンド強度)</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">volume_accel</td><td class="desc">出来高5日平均の5日前比変化率</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">efficiency_ratio20</td><td class="desc">Kaufman効率比(20日)</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">days_since_high20</td><td class="desc">20日高値からの経過日数</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">new_high20</td><td class="desc">20日高値を当日終値が更新したか(2値)</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">positive_gap_ratio_5</td><td class="desc">直近5日でプラスギャップの割合</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">gap_follow_through</td><td class="desc">ギャップ方向とその日の順張り度合い</td><td><span class="badge b-fail">IC不足</span></td></tr>
+      <tr><td class="fname">volume_ma_ratio</td><td class="desc">出来高5日MA ÷ 20日MA</td><td><span class="badge b-fail">IC不足</span></td></tr>
+    </table></div>
+
+    <div class="grid2">
+      <div>
+        <h3>マクロ候補プール(9個、usdjpy_chgのみIC通過)</h3>
+        <div class="tablewrap"><table>
+          <tr><th>特徴量</th><th>定義</th><th>判定</th></tr>
+          <tr><td class="fname">usdjpy_chg</td><td class="desc">ドル円日次変化率</td><td><span class="badge b-pass">IC通過</span></td></tr>
+          <tr><td class="fname">vix_overnight_chg</td><td class="desc">VIXオーバーナイト変化率</td><td><span class="badge b-warn">look-aheadギャップ大</span></td></tr>
+          <tr><td class="fname">topix_ret_5d</td><td class="desc">TOPIX5日リターン</td><td><span class="badge b-warn">look-aheadギャップ大</span></td></tr>
+          <tr><td class="fname">nk225_ret_5d</td><td class="desc">日経5日リターン</td><td><span class="badge b-warn">look-aheadギャップ大</span></td></tr>
+          <tr><td class="fname">market_vol_regime</td><td class="desc">市場実現ボラの60日z-score</td><td><span class="badge b-fail">IC不足・年不安定</span></td></tr>
+          <tr><td class="fname">cta_momentum_x_mid</td><td class="desc">cta_momentum × MIDボラregime</td><td><span class="badge b-warn">旧look-ahead版</span></td></tr>
+          <tr><td class="fname">cta_net_norm_x_low(候補版)</td><td class="desc">同名だが本番版と異なる旧計算</td><td><span class="badge b-warn">旧look-ahead版、本番とは別物</span></td></tr>
+          <tr><td class="fname">market_vol_regime_x_high</td><td class="desc">market_vol_regime × HIGHボラregime</td><td><span class="badge b-warn">旧look-ahead版</span></td></tr>
+          <tr><td class="fname">usdjpy_chg_x_low</td><td class="desc">usdjpy_chg × LOWボラregime</td><td><span class="badge b-fail">gap算出不可</span></td></tr>
+        </table></div>
+      </div>
+      <div>
+        <h3>マージン残高候補(4個、水準のみIC通過)</h3>
+        <div class="tablewrap"><table>
+          <tr><th>特徴量</th><th>定義</th><th>判定</th></tr>
+          <tr><td class="fname">margin_ratio_level</td><td class="desc">信用倍率(買い残÷売り残)生値</td><td><span class="badge b-pass">IC通過・低相関</span></td></tr>
+          <tr><td class="fname">margin_ratio_zscore_12w</td><td class="desc">信用倍率の12週z-score</td><td><span class="badge b-fail">IC不足</span></td></tr>
+          <tr><td class="fname">margin_buy_chg_1w</td><td class="desc">信用買い残の前週比変化率</td><td><span class="badge b-fail">IC不足</span></td></tr>
+          <tr><td class="fname">margin_short_chg_1w</td><td class="desc">信用売り残の前週比変化率</td><td><span class="badge b-fail">IC不足</span></td></tr>
+        </table></div>
+        <h3>セクター相対候補(4個、全不合格)</h3>
+        <div class="tablewrap"><table>
+          <tr><th>特徴量</th><th>定義</th><th>判定</th></tr>
+          <tr><td class="fname">sector_rel_ret_5d/20d</td><td class="desc">同業種平均との相対リターン</td><td><span class="badge b-fail">IC不足</span></td></tr>
+          <tr><td class="fname">sector_rank_ret_5d</td><td class="desc">同業種内リターン順位</td><td><span class="badge b-fail">IC不足</span></td></tr>
+          <tr><td class="fname">sector_rel_vol_ratio_5d</td><td class="desc">同業種平均との相対出来高比</td><td><span class="badge b-fail">IC不足</span></td></tr>
+        </table></div>
+      </div>
+    </div>
+
+    <h3>SHAP交互作用候補(LightGBM+SHAP、既存14特徴量から発見)</h3>
+    <div class="tablewrap"><table>
+      <tr><th>特徴量</th><th>定義</th><th>判定</th></tr>
+      <tr><td class="fname">cta_net_norm_x_market_vol_regime</td><td class="desc">全候補中で最強のSHAP相互作用</td><td><span class="badge b-fail">木モデルでは有望、NN単一シードでPF -23%</span></td></tr>
+      <tr><td class="fname">rolling_beta_x_cta_net_norm</td><td class="desc">既存同士で最強のSHAP相互作用</td><td><span class="badge b-fail">同上のセットに含めてNN検証、悪化</span></td></tr>
+      <tr><td class="fname">rolling_beta_x_cta_net_norm_x_market_vol_regime</td><td class="desc">上記2つを統合した3項交互作用</td><td><span class="badge b-fail">同上</span></td></tr>
+      <tr><td class="fname">pin_dist_ratio_x_cta_net_norm</td><td class="desc">3番目に強いSHAP相互作用</td><td><span class="badge b-fail">単独NN未検証</span></td></tr>
+    </table></div>
+    <p class="note">最終確認: 既存14 + {3way交互作用, atr_term_ratio, dist_from_high60, margin_ratio_level, gap_avg_5d} をNN単一シード(42)で実際に学習・バックテストした結果、PF 1.96→1.51(-23%)、勝率53.9%→47.2%と明確に悪化。木モデル(LGBM)のforward selectionでは最も安定した軌跡を示した組み合わせだったが、実モデルでは通用しなかった。軽量GRU(Transformer側を省いた簡易プロキシ)による事前スクリーニングも試したが、損失関数を2パターン試して結果が矛盾し(方向一致/方向不一致)、信頼できるツールにはならなかった。</p>
+  </div>
+
+  <footer>PFモデル9+5特徴量は2026-09-18時点で変更なし。地合いリスクモデルのcta_net_norm_x_lowのみ本番投入。</footer>
+</div>

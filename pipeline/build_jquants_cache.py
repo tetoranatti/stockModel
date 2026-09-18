@@ -567,15 +567,20 @@ def main():
     print("【4/6】信用取引週末残高キャッシュ生成")
     print("=" * 75)
 
-    margin_year, margin_week, _ = today_d.isocalendar()
-    margin_cache_path = os.path.join(MARGIN_DIR, f"margin_cache_{margin_year}_w{margin_week:02d}.json")
-
-    if os.path.exists(margin_cache_path):
-        print(f"[*] 信用取引週末残高キャッシュは既に今週分があります ({os.path.basename(margin_cache_path)})。スキップ")
+    # ファイル名は「今日のISO週」ではなく、実際に取得できた最新公表日のISO週で決める。
+    # 今週分がまだ公表されていない時に先に今週の週番号でファイル名を決めてしまうと、
+    # 前週データが「今週分」として保存され、しかもその存在チェックにより本当の今週分が
+    # 後で公表されてもスキップされ続けてしまう(2026-09-18、株価キャッシュと同種の不具合を発見)。
+    latest_date, latest_data = fetch_latest_margin_interest(session, today_d, rate_limiter)
+    if not latest_data:
+        print("[-] 信用取引週末残高を取得できませんでした。")
     else:
-        latest_date, latest_data = fetch_latest_margin_interest(session, today_d, rate_limiter)
-        if not latest_data:
-            print("[-] 信用取引週末残高を取得できませんでした。")
+        margin_year, margin_week, _ = latest_date.isocalendar()
+        margin_cache_path = os.path.join(MARGIN_DIR, f"margin_cache_{margin_year}_w{margin_week:02d}.json")
+
+        if os.path.exists(margin_cache_path):
+            print(f"[*] 信用取引週末残高キャッシュは既に最新公表分があります "
+                  f"({os.path.basename(margin_cache_path)}, 公表日={latest_date.strftime('%Y-%m-%d')})。スキップ")
         else:
             prev_date, prev_data = fetch_latest_margin_interest(
                 session, latest_date - datetime.timedelta(days=1), rate_limiter
@@ -613,6 +618,7 @@ def main():
 
             with open(margin_cache_path, "w", encoding="utf-8") as f:
                 json.dump(margin_dict, f, ensure_ascii=False, indent=2)
+            print(f"[+] 信用取引週末残高キャッシュ保存完了(公表日={latest_date.strftime('%Y-%m-%d')}): {margin_cache_path}")
             print(f"[+] 信用取引週末残高キャッシュ保存完了: {margin_cache_path} ({len(margin_dict)} 銘柄, 基準日 {latest_date})")
 
     # =========================================================================
