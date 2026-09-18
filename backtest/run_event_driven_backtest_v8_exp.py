@@ -17,7 +17,7 @@ from modules.cross_sectional_features import (
     valid_cross_section_dates,
     normalize_cross_sectional,
 )
-from modules.model_inference import load_trained_models_ensemble, predict_probabilities_ensemble
+from modules.model_inference import load_trained_models_ensemble, predict_probabilities_ensemble_batch
 
 BASE_DIR = r"F:\stockModel"
 UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
@@ -179,13 +179,26 @@ def run_backtest(return_source="nk225", use_expanded_universe=False, next_open_e
             if not indices:
                 continue
 
+            # 有効な(NaNでない)idxのw_s/w_mを先にまとめてバッチ推論する(2026-09-18、
+            # 1件ずつ推論していたのを本銘柄分まとめて1回のforward呼び出しに変更。
+            # .eval()+LayerNormのみ(BatchNorm不使用)なので結果は数値的に完全一致し、
+            # 純粋な高速化になる)。
+            valid_indices, w_s_list, w_m_list = [], [], []
             for idx in indices:
-                w_s = vals_s_norm[idx - seq_len + 1: idx + 1].copy()
+                w_s = vals_s_norm[idx - seq_len + 1: idx + 1]
                 if np.isnan(w_s).any():
                     continue
-                w_m = vals_m[idx - seq_len + 1: idx + 1].copy()
+                valid_indices.append(idx)
+                w_s_list.append(w_s)
+                w_m_list.append(vals_m[idx - seq_len + 1: idx + 1])
+            if not valid_indices:
+                continue
+            p_win_arr, p_stop_arr, _ = predict_probabilities_ensemble_batch(
+                models, np.stack(w_s_list), np.stack(w_m_list)
+            )
 
-                p_win, p_stop, _ = predict_probabilities_ensemble(models, w_s, w_m)
+            for k, idx in enumerate(valid_indices):
+                p_win, p_stop = float(p_win_arr[k]), float(p_stop_arr[k])
 
                 # next_open_entry=True: シグナル(idx時点の終値ベース特徴量)に対して
                 # 実際に約定可能な最速タイミングである翌営業日始値を約定価格とする

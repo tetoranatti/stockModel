@@ -20,7 +20,7 @@ from modules.cross_sectional_features import (
     apply_log_transform, compute_cross_sectional_stats,
     valid_cross_section_dates, normalize_cross_sectional,
 )
-from modules.model_inference import load_trained_models_ensemble, predict_probabilities_ensemble
+from modules.model_inference import load_trained_models_ensemble, predict_probabilities_ensemble_batch
 from modules.short_edge_model import (
     SHORT_EDGE_COLS, SHORT_EDGE_COLS_NO_FLOW, SHORT_EDGE_COLS_SHORT_RATIO, ShortEdgeMLP, DEVICE,
     build_flow_features, build_vix_features, build_idx_momentum_features,
@@ -126,14 +126,25 @@ def build_day_level_dataset(include_flow=True, include_short_ratio=False):
 
                 p_win_arr = np.full(n_samples, np.nan)
                 p_stop_arr = np.full(n_samples, np.nan)
+                # 有効な(NaNでない)idxのw_s/w_mを先にまとめてバッチ推論する(2026-09-18、
+                # 1件ずつ推論していたのを本銘柄分まとめて1回のforward呼び出しに変更。
+                # .eval()+LayerNormのみ(BatchNorm不使用)なので結果は数値的に完全一致し、
+                # 純粋な高速化になる)。
+                valid_idx, w_s_list, w_m_list = [], [], []
                 for idx in range(SEQ_LEN - 1, n_samples):
                     w_s = vals_s_norm[idx - SEQ_LEN + 1: idx + 1]
                     if np.isnan(w_s).any():
                         continue
-                    w_m = vals_m[idx - SEQ_LEN + 1: idx + 1]
-                    p_win, p_stop, _ = predict_probabilities_ensemble(pf_models, w_s, w_m)
-                    p_win_arr[idx] = p_win
-                    p_stop_arr[idx] = p_stop
+                    valid_idx.append(idx)
+                    w_s_list.append(w_s)
+                    w_m_list.append(vals_m[idx - SEQ_LEN + 1: idx + 1])
+                if valid_idx:
+                    p_win_b, p_stop_b, _ = predict_probabilities_ensemble_batch(
+                        pf_models, np.stack(w_s_list), np.stack(w_m_list)
+                    )
+                    for k, idx in enumerate(valid_idx):
+                        p_win_arr[idx] = p_win_b[k]
+                        p_stop_arr[idx] = p_stop_b[k]
                 per_ticker_p_win[t] = pd.Series(p_win_arr, index=df.index)
                 per_ticker_p_stop[t] = pd.Series(p_stop_arr, index=df.index)
             except Exception:

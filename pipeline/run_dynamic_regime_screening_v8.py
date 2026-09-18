@@ -20,7 +20,7 @@ from modules.sector_matcher import get_ticker_sector_sentiment
 from modules.regime_detector import load_macro_environment, detect_macro_regime
 from modules.model_inference import (
     load_trained_models_ensemble,
-    predict_probabilities_ensemble,
+    predict_probabilities_ensemble_batch,
     compute_supply_demand_factor,
     apply_odds_adjustment
 )
@@ -216,22 +216,46 @@ def main():
     # 学習時と定義を揃えるため)
     short_edge_p_win, short_edge_p_stop, short_edge_vol_ratio = {}, {}, {}
 
-    for i, t in enumerate(per_ticker_df.keys()):
+    # 全銘柄分のw_s/w_mを先にまとめてバッチ推論する(2026-09-18、1件ずつ推論していたのを
+    # スキャン対象銘柄まとめて1回のforward呼び出しに変更。.eval()+LayerNormのみ
+    # (BatchNorm不使用)なので結果は数値的に完全一致し、純粋な高速化になる)。
+    batch_tickers, w_s_list, w_m_list = [], [], []
+    for t in per_ticker_df.keys():
         try:
             df = per_ticker_df[t]
             df_log = per_ticker_log[t].loc[per_ticker_log[t].index.isin(valid_dates)]
             if len(df_log) < SEQ_LEN:
                 continue
-
-            turnover_5d = turnover_by_ticker[t]
             norm_s = normalize_cross_sectional(df_log, cross_mean, cross_std, stock_cols)
-            w_s = norm_s.values[-SEQ_LEN:].copy()
+            w_s = norm_s.values[-SEQ_LEN:]
             if np.isnan(w_s).any():
                 continue
-            w_m = df.loc[df_log.index, macro_cols].values[-SEQ_LEN:].copy()
+            w_m = df.loc[df_log.index, macro_cols].values[-SEQ_LEN:]
+            batch_tickers.append(t)
+            w_s_list.append(w_s)
+            w_m_list.append(w_m)
+        except Exception:
+            continue
 
-            # v8 アンサンブルモデルによる確率推論(予測平均)
-            p_win_raw, p_stop_raw, ev_raw = predict_probabilities_ensemble(models, w_s, w_m)
+    pred_map = {}
+    if batch_tickers:
+        p_win_arr, p_stop_arr, ev_arr = predict_probabilities_ensemble_batch(
+            models, np.stack(w_s_list), np.stack(w_m_list)
+        )
+        pred_map = {t: (float(p_win_arr[k]), float(p_stop_arr[k]), float(ev_arr[k]))
+                    for k, t in enumerate(batch_tickers)}
+
+    for i, t in enumerate(per_ticker_df.keys()):
+        try:
+            if t not in pred_map:
+                continue
+            df = per_ticker_df[t]
+            df_log = per_ticker_log[t].loc[per_ticker_log[t].index.isin(valid_dates)]
+
+            turnover_5d = turnover_by_ticker[t]
+
+            # v8 アンサンブルモデルによる確率推論(予測平均、上でバッチ計算済み)
+            p_win_raw, p_stop_raw, ev_raw = pred_map[t]
 
             # 表示・ゲート判定には正規化前の生の値を使う(解釈性のため)
             latest_date = df_log.index[-1]

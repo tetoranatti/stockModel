@@ -375,10 +375,25 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
     tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx = tr_data
     va_x_s, va_x_m, va_y, va_tid, va_tidx = va_data
     set_seed(seed)
-    train_ds = UniverseDataset(tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx)
-    val_ds = UniverseDataset(va_x_s, va_x_m, va_y, va_tid, va_tidx)
-    train_loader = torch.utils.data.DataLoader(train_ds, batch_sampler=SameTickerBatchSampler(tr_tid, 128, shuffle=True), pin_memory=True)
-    val_loader = torch.utils.data.DataLoader(val_ds, batch_sampler=SameTickerBatchSampler(va_tid, 256, shuffle=False), pin_memory=True)
+
+    # Dataset/DataLoaderを経由せず、テンソル化した全データを1回だけGPUに載せ、バッチは
+    # そこから直接fancy indexingで取得する(2026-09-19、ユーザー提案。データは既に
+    # メモリ上の配列でDataLoaderの遅延ロード/並列ワーカーの恩恵が無いため、__getitem__+
+    # collateのオーバーヘッドと毎バッチのCPU->GPU転送を回避できる)。
+    # SameTickerBatchSampler.__iter__は呼ぶたびに(shuffle=Trueなら)再シャッフルする
+    # ため、元のDataLoader経由(毎epoch新しいイテレータ)と同じくepochごとに再シャッフル
+    # される(サンプラー自体は使い回し、for batch_idx in train_sampler: で回す)。
+    tr_xs_t = torch.tensor(tr_x_s, dtype=torch.float32, device=DEVICE)
+    tr_xm_t = torch.tensor(tr_x_m, dtype=torch.float32, device=DEVICE)
+    tr_y_t = torch.tensor(tr_y, dtype=torch.float32, device=DEVICE)
+    tr_tidx_t = torch.tensor(tr_tidx, dtype=torch.long, device=DEVICE)
+    va_xs_t = torch.tensor(va_x_s, dtype=torch.float32, device=DEVICE)
+    va_xm_t = torch.tensor(va_x_m, dtype=torch.float32, device=DEVICE)
+    va_y_t = torch.tensor(va_y, dtype=torch.float32, device=DEVICE)
+    va_tidx_t = torch.tensor(va_tidx, dtype=torch.long, device=DEVICE)
+
+    train_sampler = SameTickerBatchSampler(tr_tid, 128, shuffle=True)
+    val_batches = list(SameTickerBatchSampler(va_tid, 256, shuffle=False))
 
     arch_cls = ARCH_CLASSES[MODEL_ARCH]
     model_kwargs = dict(stock_dim=len(s_cols), macro_dim=len(m_cols), hidden_dim=MODEL_HIDDEN_DIM,
@@ -403,16 +418,19 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
             prof.__enter__()
 
         model.train()
-        total_tr, n_tr_batches = 0.0, 0
-        for b_xs, b_xm, b_y, b_tid, b_tidx in train_loader:
-            b_xs, b_xm, b_y, b_tidx = (b_xs.to(DEVICE), b_xm.to(DEVICE), b_y.to(DEVICE), b_tidx.to(DEVICE))
+        # 検証ループと同じ理由(.item()は毎回GPU-CPU同期を発生させる)で、テンソルのまま
+        # 累積し、学習ループ終了後に1回だけ.item()する(2026-09-18、ユーザー指摘で修正)。
+        total_tr = torch.zeros((), device=DEVICE)
+        n_tr_batches = 0
+        for batch_idx in train_sampler:
+            b_xs, b_xm, b_y, b_tidx = tr_xs_t[batch_idx], tr_xm_t[batch_idx], tr_y_t[batch_idx], tr_tidx_t[batch_idx]
             optimizer.zero_grad()
             loss = criterion(model(b_xs, b_xm), b_y, b_tidx)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            total_tr += loss.item(); n_tr_batches += 1
-        train_loss = total_tr / n_tr_batches if n_tr_batches else float('inf')
+            total_tr += loss.detach(); n_tr_batches += 1
+        train_loss = (total_tr / n_tr_batches).item() if n_tr_batches else float('inf')
 
         if do_profile:
             prof.__exit__(None, None, None)
@@ -426,8 +444,8 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
         total_va = torch.zeros((), device=DEVICE)
         n_batches = 0
         with torch.no_grad():
-            for b_xs, b_xm, b_y, b_tid, b_tidx in val_loader:
-                b_xs, b_xm, b_y, b_tidx = (b_xs.to(DEVICE), b_xm.to(DEVICE), b_y.to(DEVICE), b_tidx.to(DEVICE))
+            for batch_idx in val_batches:
+                b_xs, b_xm, b_y, b_tidx = va_xs_t[batch_idx], va_xm_t[batch_idx], va_y_t[batch_idx], va_tidx_t[batch_idx]
                 loss = criterion(model(b_xs, b_xm), b_y, b_tidx)
                 total_va += loss; n_batches += 1
         val_loss = (total_va / n_batches).item() if n_batches else float('inf')
@@ -447,6 +465,8 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
 
 
 def predict1(model, w_s, w_m):
+    """1件ずつ推論する旧実装。正しさの検証用に残してある(run_backtest_inferenceは
+    2026-09-18よりバッチ推論に変更済み、通常はこちらを直接呼ぶ必要はない)。"""
     t_s = torch.tensor(w_s, dtype=torch.float32).unsqueeze(0).to(DEVICE)
     t_m = torch.tensor(w_m, dtype=torch.float32).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
@@ -454,11 +474,24 @@ def predict1(model, w_s, w_m):
     return float(probs[2]), float(probs[0])
 
 
-def run_backtest_inference(model, pool):
+def run_backtest_inference(model, pool, batch_size=256):
+    """poolを1件ずつではなくbatch_size件まとめてforwardする(2026-09-18、1件ずつだと
+    ~23000件でその都度カーネル起動+GPU-CPU同期が発生し非常に遅かったため)。
+    LayerNormのみでBatchNorm/Dropoutはeval()で無効なので、バッチをどう区切っても
+    1件ずつ推論した場合と数値的に完全一致する。"""
+    model.eval()
     records = []
-    for t, date, w_s, w_m, ret_pct in pool:
-        p_win, p_stop = predict1(model, w_s, w_m)
-        records.append({'ticker': t, 'date': date, 'p_win': p_win, 'p_stop': p_stop, 'ret_pct': ret_pct})
+    with torch.no_grad():
+        for i in range(0, len(pool), batch_size):
+            chunk = pool[i:i + batch_size]
+            w_s_batch = np.stack([item[2] for item in chunk])
+            w_m_batch = np.stack([item[3] for item in chunk])
+            t_s = torch.tensor(w_s_batch, dtype=torch.float32).to(DEVICE)
+            t_m = torch.tensor(w_m_batch, dtype=torch.float32).to(DEVICE)
+            probs = torch.softmax(model(t_s, t_m), dim=-1).cpu().numpy()
+            for j, (t, date, w_s, w_m, ret_pct) in enumerate(chunk):
+                records.append({'ticker': t, 'date': date, 'p_win': float(probs[j, 2]),
+                                 'p_stop': float(probs[j, 0]), 'ret_pct': ret_pct})
     return pd.DataFrame(records)
 
 

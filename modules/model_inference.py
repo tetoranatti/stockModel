@@ -67,6 +67,36 @@ def predict_probabilities_ensemble(models, w_s, w_m):
     ev_raw = round(2.0 * p_win_raw - 1.0 * p_stop_raw, 3)
     return p_win_raw, p_stop_raw, ev_raw
 
+def predict_probabilities_batch(model, w_s_batch, w_m_batch):
+    """predict_probabilitiesのバッチ版。w_s_batch/w_m_batchはshape (N, seq_len, dim)。
+    戻り値はp_win/p_stop/evそれぞれshape (N,) のnumpy配列(2026-09-18追加、大量サンプルを
+    1件ずつ推論していたループを一括化して高速化するため。.eval()+LayerNormのみ
+    (BatchNorm不使用)なので、バッチの切り方に関わらず1件ずつ推論した場合と
+    数値的に完全一致する)。"""
+    t_s = torch.tensor(w_s_batch, dtype=torch.float32).to(DEVICE)
+    t_m = torch.tensor(w_m_batch, dtype=torch.float32).to(DEVICE)
+    with torch.no_grad():
+        probs = torch.softmax(model(t_s, t_m), dim=-1).cpu().numpy()
+    p_stop_raw, p_win_raw = probs[:, 0], probs[:, 2]
+    ev_raw = np.round(2.0 * p_win_raw - 1.0 * p_stop_raw, 3)
+    return p_win_raw, p_stop_raw, ev_raw
+
+def predict_probabilities_ensemble_batch(models, w_s_batch, w_m_batch):
+    """predict_probabilities_ensembleのバッチ版。w_s_batch/w_m_batchはshape (N, seq_len, dim)。
+    戻り値はp_win/p_stop/evそれぞれshape (N,) のnumpy配列(2026-09-18追加、理由・数値的
+    等価性の根拠はpredict_probabilities_batchと同じ)。"""
+    t_s = torch.tensor(w_s_batch, dtype=torch.float32).to(DEVICE)
+    t_m = torch.tensor(w_m_batch, dtype=torch.float32).to(DEVICE)
+    probs_sum = None
+    with torch.no_grad():
+        for model in models:
+            probs = torch.softmax(model(t_s, t_m), dim=-1).cpu().numpy()
+            probs_sum = probs if probs_sum is None else probs_sum + probs
+    probs_avg = probs_sum / len(models)
+    p_stop_raw, p_win_raw = probs_avg[:, 0], probs_avg[:, 2]
+    ev_raw = np.round(2.0 * p_win_raw - 1.0 * p_stop_raw, 3)
+    return p_win_raw, p_stop_raw, ev_raw
+
 def compute_supply_demand_factor(margin_item, curr_close, turnover_5d):
     if not margin_item:
         return 1.0, 0.0
