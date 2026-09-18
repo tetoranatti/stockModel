@@ -148,11 +148,11 @@ FEATURE_TOGGLES = {
 }
 
 MODEL_ARCH = "dual_stream"  # "dual_stream"(本番) / "gru_only" / "transformer_only"
-MODEL_HIDDEN_DIM = 20   # 本番と同じ既定値。超軽量版を試すならここを変える(num_headsで割り切れる値に)
-MODEL_NUM_HEADS = 1     # 本番と同じ既定値。gru_onlyでは無視される
+MODEL_HIDDEN_DIM = 20   # 20:本番と同じ既定値。超軽量版を試すならここを変える(num_headsで割り切れる値に)
+MODEL_NUM_HEADS = 1     # 1:本番と同じ既定値。gru_onlyでは無視される
 USE_CROSS_FFN = False   # Cross-Attention後にFFNサブレイヤーを追加するか(dual_stream限定、既定False=本番と同じ)
 USE_FINAL_NORM = False  # Cross-Attention後・pooling前に最終LayerNormを追加するか(dual_stream限定、既定False=本番と同じ)
-SEEDS = [42, 43, 44]    # 複数シードでmean/stdを見る(組み合わせによってシード間のばらつきが
+SEEDS = [42]    # 複数シードでmean/stdを見る(組み合わせによってシード間のばらつきが
                         # 変わるか比較したい場合はここを増減する。単発でよければ[42]だけにする)
 PROFILE_FIRST_EPOCH = False  # Trueにすると、最初のシードのベースライン学習の epoch=1 だけ
                              # torch.profilerで計測し、処理時間トップ10を表示する(それ以外は
