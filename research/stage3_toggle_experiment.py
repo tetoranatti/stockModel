@@ -47,6 +47,7 @@ from training.train_model_v8_exp import (
     MAX_PAIR_GAP, UNIVERSE_PATH, MIN_CROSS_SECTION,
 )
 from modules.model_arch import DualStream_GRU_PreLN_Transformer, GRUOnlyModel, TransformerOnlyModel
+from torch.profiler import profile as torch_profile, ProfilerActivity
 from modules.macro_features import load_macro_slim5
 from modules.stock_features import STOCK_FEATURE_COLS
 from modules.cross_sectional_features import (
@@ -56,6 +57,37 @@ from _feature_cache_utils import (
     get_full_feature_pool_df, get_full_macro_pool_df, get_margin_pool_df,
     get_sector_relative_pool_df,
 )
+
+
+class NearPairRankingLossFast(nn.Module):
+    """NearPairRankingLossのO(B×max_gap)版(2026-09-18、Profilerでaten::_index_put_impl_が
+    目立ったため追加)。本番のO(B²)版(全B×Bペアを作ってからmax_gap以内をマスク)と
+    数値的に厳密に同値——SameTickerBatchSampler+build_datasetの構築により、各バッチ内は
+    同一銘柄・tidx昇順で並ぶことが保証されているため、配列オフセットδ=1..max_gapだけ見れば
+    |tidx_i-tidx_j|<=max_gapを満たす全ペアを漏れなく拾える。全ペア行列を作らずtorch.catで
+    済ませることで、O(B²)のメモリ確保・2Dマスクインデックスを回避する。
+    tidxが昇順という前提が崩れる呼び出し方をすると結果が変わるので注意(通常の
+    SameTickerBatchSampler経由なら常に成立する)。"""
+    def __init__(self, max_gap=MAX_PAIR_GAP):
+        super().__init__()
+        self.max_gap = max_gap
+
+    def forward(self, logits, ret_pct, tidx):
+        probs = torch.softmax(logits, dim=-1)
+        score = probs[:, 2] - probs[:, 0]
+        B = score.shape[0]
+        parts = []
+        for delta in range(1, min(self.max_gap, B - 1) + 1):
+            s_diff = score[delta:] - score[:-delta]
+            r_diff = ret_pct[delta:] - ret_pct[:-delta]
+            t_diff = (tidx[delta:] - tidx[:-delta]).abs()
+            sign = torch.sign(r_diff)
+            mask = (sign != 0) & (t_diff <= self.max_gap)
+            if mask.any():
+                parts.append(torch.nn.functional.softplus(-sign[mask] * s_diff[mask]))
+        if not parts:
+            return score.sum() * 0.0
+        return torch.cat(parts).mean()
 
 BASE_MACRO_COLS = ['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentum', 'nk_ret_norm']
 
@@ -122,6 +154,10 @@ USE_CROSS_FFN = False   # Cross-Attention後にFFNサブレイヤーを追加す
 USE_FINAL_NORM = False  # Cross-Attention後・pooling前に最終LayerNormを追加するか(dual_stream限定、既定False=本番と同じ)
 SEEDS = [42, 43, 44]    # 複数シードでmean/stdを見る(組み合わせによってシード間のばらつきが
                         # 変わるか比較したい場合はここを増減する。単発でよければ[42]だけにする)
+PROFILE_FIRST_EPOCH = False  # Trueにすると、最初のシードのベースライン学習の epoch=1 だけ
+                             # torch.profilerで計測し、処理時間トップ10を表示する(それ以外は
+                             # 計測オーバーヘッド無し。データ準備 vs 学習 vs 検証のどこが重いか
+                             # 見たい時だけTrueにする)
 # ============================================================================
 
 ARCH_CLASSES = {
@@ -335,7 +371,7 @@ def prepare_backtest_pool(macro_cols, stock_cols, pool, margin_pool, sector_pool
     return pool_out
 
 
-def train_model(seed, tr_data, va_data, s_cols, m_cols, label):
+def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call=False):
     tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx = tr_data
     va_x_s, va_x_m, va_y, va_tid, va_tidx = va_data
     set_seed(seed)
@@ -359,6 +395,13 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label):
     best_val_loss, best_state, patience_cnt = float('inf'), None, 0
     patience, epochs = 7, 30
     for epoch in range(1, epochs + 1):
+        do_profile = profile_this_call and epoch == 1
+        prof = None
+        if do_profile:
+            activities = [ProfilerActivity.CPU] + ([ProfilerActivity.CUDA] if torch.cuda.is_available() else [])
+            prof = torch_profile(activities=activities)
+            prof.__enter__()
+
         model.train()
         total_tr, n_tr_batches = 0.0, 0
         for b_xs, b_xm, b_y, b_tid, b_tidx in train_loader:
@@ -371,14 +414,23 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label):
             total_tr += loss.item(); n_tr_batches += 1
         train_loss = total_tr / n_tr_batches if n_tr_batches else float('inf')
 
+        if do_profile:
+            prof.__exit__(None, None, None)
+            sort_key = "self_cuda_time_total" if torch.cuda.is_available() else "self_cpu_time_total"
+            log(f"[Profiler] [{label}] epoch1 学習ループ({n_tr_batches}バッチ)処理時間トップ10:")
+            print(prof.key_averages().table(sort_by=sort_key, row_limit=10))
+
         model.eval()
-        total_va, n_batches = 0.0, 0
+        # .item()は毎回GPU-CPU同期を発生させるので、バッチごとには呼ばずテンソルのまま
+        # 累積し、検証ループ終了後に1回だけ.item()する(2026-09-18、ユーザー指摘で修正)。
+        total_va = torch.zeros((), device=DEVICE)
+        n_batches = 0
         with torch.no_grad():
             for b_xs, b_xm, b_y, b_tid, b_tidx in val_loader:
                 b_xs, b_xm, b_y, b_tidx = (b_xs.to(DEVICE), b_xm.to(DEVICE), b_y.to(DEVICE), b_tidx.to(DEVICE))
                 loss = criterion(model(b_xs, b_xm), b_y, b_tidx)
-                total_va += loss.item(); n_batches += 1
-        val_loss = total_va / n_batches if n_batches else float('inf')
+                total_va += loss; n_batches += 1
+        val_loss = (total_va / n_batches).item() if n_batches else float('inf')
 
         if val_loss < best_val_loss:
             best_val_loss, best_state, patience_cnt = val_loss, {k: v.clone() for k, v in model.state_dict().items()}, 0
@@ -460,9 +512,10 @@ if __name__ == "__main__":
     log(f"[+] backtest_pool base={len(pool_base)} test={len(pool_test)}")
 
     results_base, results_test = [], []
-    for seed in SEEDS:
+    for si, seed in enumerate(SEEDS):
         log(f"=== seed={seed} ===")
-        model_base = train_model(seed, tr0, va0, BASELINE_STOCK_COLS, BASELINE_MACRO_COLS, "ベースライン(既存14固定)")
+        model_base = train_model(seed, tr0, va0, BASELINE_STOCK_COLS, BASELINE_MACRO_COLS, "ベースライン(既存14固定)",
+                                  profile_this_call=(PROFILE_FIRST_EPOCH and si == 0))
         d_base = run_backtest_inference(model_base, pool_base)
         model_test = train_model(seed, tr1, va1, TEST_STOCK_COLS, TEST_MACRO_COLS, f"テスト構成({len(TEST_FEATS)}個)")
         d_test = run_backtest_inference(model_test, pool_test)
