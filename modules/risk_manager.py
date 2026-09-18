@@ -49,7 +49,7 @@ def determine_sizing_factor(ret_1d, is_bear_candle, days_to_clear, margin_ratio,
 
 def evaluate_screening_gate(p_win, p_stop, ev_adj, beta, vol_ratio, days_to_clear,
                             is_bear_regime, strong_buy_th, buy_threshold, watch_threshold,
-                            sec_shock, sec_advice, sec_summary, flow_level="NORMAL"):
+                            sec_shock, sec_advice, sec_summary):
     action = "⏸️ WAIT"
     gate_reason = "見送り"
 
@@ -62,12 +62,12 @@ def evaluate_screening_gate(p_win, p_stop, ev_adj, beta, vol_ratio, days_to_clea
         action = "⏸️ WAIT"
         gate_reason = f"🛑 セクターショック警戒回避 [{sec_summary}]"
     elif p_win >= strong_buy_th and p_win > p_stop:
-        if flow_level == "QUIET" and beta >= 1.2:
-            action = "🎯 BUY"
-            gate_reason = f"大口薄商いによる高β抑制(元本買い, β={beta:.2f})"
-        else:
-            action = "🔥 STRONG BUY"
-            gate_reason = f"本買い適合(補正勝率{p_win*100:.1f}%, EV={ev_adj:+.2f}R)"
+        # 旧: flow_level=="QUIET"かつ高ベータならBUYに格下げするルールがあったが、
+        # CTA/JNET関連の大口手口フローは検証した限り全て「効果なし/逆効果」という
+        # 結論だった(determine_sizing_factor側のコメント参照)ため、未検証のまま
+        # 残っていたこのゲート版のルールも一貫性のため撤去した。
+        action = "🔥 STRONG BUY"
+        gate_reason = f"本買い適合(補正勝率{p_win*100:.1f}%, EV={ev_adj:+.2f}R)"
     elif p_win >= buy_threshold and p_win > p_stop and vol_ratio >= 0.85:
         if is_bear_regime and beta >= 1.0:
             action = "⏸️ WAIT"
@@ -82,6 +82,11 @@ def evaluate_screening_gate(p_win, p_stop, ev_adj, beta, vol_ratio, days_to_clea
     return action, gate_reason
 
 def calculate_target_stop_levels(curr_close, curr_atr):
+    """curr_close(シグナル当日終値)基準の絶対価格でOCO水準を算出する。
+    実際の約定は翌営業日の引成(大引け成行)注文を想定しており、この基準値そのものが
+    エントリー価格になるわけではないが、検証の結果この絶対水準を動かさずに
+    翌営業日引けで約定させる方式が最も実績を維持できたため、水準の計算自体は
+    curr_close基準のまま据え置いている(modules/tracking.pyのresolve_entries()参照)。"""
     target_price = round(curr_close + 2.0 * curr_atr, 1)
     stop_price = round(curr_close - 1.0 * curr_atr, 1)
     return target_price, stop_price
@@ -108,12 +113,24 @@ def calculate_recommended_position(price, stop_price, size_factor,
     is_leverage_capped = leverage_cap_shares < risk_based_shares and shares > 0
     is_maxpos_capped = max_pos_shares < min(risk_based_shares, leverage_cap_shares) and shares > 0
 
+    # 0株になった場合、どの上限が原因かを切り分ける(優先順位: risk -> leverage -> maxpos)。
+    # UI/CSVで「なぜ見送りになったか」を表示するための診断情報。
+    skip_reason = None
+    if shares <= 0:
+        if risk_based_shares <= 0:
+            skip_reason = "risk"       # 1ATRの損切幅が広すぎてリスク予算内で100株すら買えない
+        elif leverage_cap_shares <= 0:
+            skip_reason = "leverage"   # 信用枠(資金×レバレッジ)を使い切っている
+        elif max_pos_shares <= 0:
+            skip_reason = "maxpos"     # 株価が高く、1銘柄上限%の枠内で100株すら買えない
+
     return {
         "recommended_shares": shares,
         "estimated_cost_yen": round(shares * price),
         "estimated_max_loss_yen": round(shares * risk_per_share),
         "leverage_capped": is_leverage_capped,
         "maxpos_capped": is_maxpos_capped,
+        "skip_reason": skip_reason,
     }
 
 
@@ -146,10 +163,12 @@ def build_portfolio(candidates, capital=DEFAULT_CAPITAL, risk_pct=DEFAULT_RISK_P
     used_buying_power = 0.0
     total_risk_yen = 0.0
     portfolio_rows = []
+    skip_reason_counts = {"risk": 0, "leverage": 0, "maxpos": 0, "position_limit": 0}
 
     for item in candidates:
         if len(portfolio_rows) >= max_positions:
-            break
+            skip_reason_counts["position_limit"] += 1
+            continue  # max_positionsに到達済み(以降の候補も採用できないが件数だけ集計する)
 
         price = float(item['price'])
         stop_price = float(item['stop_price'])
@@ -166,6 +185,15 @@ def build_portfolio(candidates, capital=DEFAULT_CAPITAL, risk_pct=DEFAULT_RISK_P
 
         shares = max(0, min(risk_based_shares, leverage_cap_shares, max_pos_shares))
         if shares <= 0:
+            # どの上限が原因で見送りになったかを切り分ける(優先順位: risk -> leverage -> maxpos)。
+            # UI/CSVで「なぜ見送りになったか」を表示するための診断情報
+            # (calculate_recommended_position()のskip_reasonと同じロジック)。
+            if risk_based_shares <= 0:
+                skip_reason_counts["risk"] += 1
+            elif leverage_cap_shares <= 0:
+                skip_reason_counts["leverage"] += 1
+            elif max_pos_shares <= 0:
+                skip_reason_counts["maxpos"] += 1
             continue  # 残り資金枠が尽きた、1銘柄上限を超えている、または最低100株すら買えない
 
         cost = shares * price
@@ -192,5 +220,6 @@ def build_portfolio(candidates, capital=DEFAULT_CAPITAL, risk_pct=DEFAULT_RISK_P
         "total_risk_yen": round(total_risk_yen),
         "n_positions": len(portfolio_rows),
         "n_candidates_evaluated": len(candidates),
+        "skip_reason_counts": skip_reason_counts,
     }
     return portfolio_rows, summary

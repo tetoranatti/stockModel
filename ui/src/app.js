@@ -6,7 +6,7 @@ const { clipboard } = require('electron');
 // 修正後: index.html起点に合わせて ./src/ を指定
 const { fetchStockDetails } = require('./src/api');
 const { initChart, updateChartData } = require('./src/chart');
-const { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta } = require('./src/data');
+const { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta, loadTrackingLog } = require('./src/data');
 const { runFullPipeline } = require('./src/runner');
 
 // プロジェクトルート（F:\stockModel）へのパス
@@ -137,7 +137,13 @@ function updatePositionSize(item) {
   const capText = isLeverageCapped ? ' [信用余力上限]' : (isMaxPosCapped ? ' [1銘柄上限]' : '');
 
   if (shares <= 0) {
-    sharesElem.innerText = '0 株 (リスク超過)';
+    // どの上限が原因で0株になったかを切り分ける(優先順位: risk -> leverage -> maxpos。
+    // modules/risk_manager.pyのcalculate_recommended_position()と同じロジック)
+    let skipLabel = 'リスク超過';
+    if (riskBasedShares <= 0) skipLabel = '損切幅がリスク予算超過';
+    else if (leverageCapShares <= 0) skipLabel = '信用余力不足';
+    else if (maxPosShares <= 0) skipLabel = '株価が1銘柄上限を超過';
+    sharesElem.innerText = `0 株 (${skipLabel})`;
     sharesElem.classList.add('sizing-alert');
   } else {
     sharesElem.innerText = `${shares.toLocaleString()} 株${factorText}${capText}`;
@@ -351,7 +357,6 @@ function loadCsvData() {
 function copySbiMemo() {
   if (!selectedItem || !currentCalc) return;
   const cleanCode = selectedItem.ticker.replace('.T', '');
-  const dipPriceStr = selectedItem.dipPrice ? `${selectedItem.dipPrice.toLocaleString()}円` : '-';
   let marginInfoStr = '';
   if (selectedItem.margin_ratio && selectedItem.margin_ratio !== '') {
     const ratioVal = parseFloat(selectedItem.margin_ratio);
@@ -377,8 +382,7 @@ function copySbiMemo() {
   const memoText =
 `【SBI発注メモ】
 銘柄: ${cleanCode} ${selectedItem.companyName || ''}
-注文: 買成 (終値 ${parseFloat(selectedItem.price).toLocaleString()}円)
-      または 押し目指値: ${dipPriceStr}
+注文: 翌営業日 引成(大引け成行) ※本日終値${parseFloat(selectedItem.price).toLocaleString()}円基準でOCO設定
 数量: ${currentCalc.shares > 0 ? currentCalc.shares.toLocaleString() : 100}株${sizeNote}${leverageNote} (概算代金: ${currentCalc.totalCost}万円)
 OCO設定:
   - 利確指値 (+2ATR): ${parseFloat(selectedItem.target).toLocaleString()}円
@@ -423,9 +427,13 @@ function buildPortfolioFromCandidates(candidates, capital, riskPct, leverage, ma
   let usedBuyingPower = 0;
   let totalRiskYen = 0;
   const positions = [];
+  const skipReasonCounts = { risk: 0, leverage: 0, maxpos: 0, position_limit: 0 };
 
   for (const item of candidates) {
-    if (positions.length >= maxPositions) break;
+    if (positions.length >= maxPositions) {
+      skipReasonCounts.position_limit++;
+      continue;
+    }
 
     const price = parseFloat(item.price);
     const stopPrice = parseFloat(item.stop);
@@ -441,7 +449,14 @@ function buildPortfolioFromCandidates(candidates, capital, riskPct, leverage, ma
     const maxPosShares = Math.floor(maxPosYen / (price * 100)) * 100;
 
     const shares = Math.max(0, Math.min(riskBasedShares, leverageCapShares, maxPosShares));
-    if (shares <= 0) continue;
+    if (shares <= 0) {
+      // どの上限が原因で見送りになったかを切り分ける(優先順位: risk -> leverage -> maxpos。
+      // modules/risk_manager.pyのbuild_portfolio()と同じロジック)
+      if (riskBasedShares <= 0) skipReasonCounts.risk++;
+      else if (leverageCapShares <= 0) skipReasonCounts.leverage++;
+      else if (maxPosShares <= 0) skipReasonCounts.maxpos++;
+      continue;
+    }
 
     const cost = shares * price;
     const riskYen = shares * riskPerShare;
@@ -465,6 +480,7 @@ function buildPortfolioFromCandidates(candidates, capital, riskPct, leverage, ma
     total_risk_yen: Math.round(totalRiskYen),
     n_positions: positions.length,
     n_candidates_evaluated: candidates.length,
+    skip_reason_counts: skipReasonCounts,
   };
   return { positions, summary };
 }
@@ -492,6 +508,14 @@ function openPortfolioModal() {
   }
 
   const s = currentPortfolio.summary;
+  const sr = s.skip_reason_counts || {};
+  const skipParts = [];
+  if (sr.risk) skipParts.push(`損切幅超過${sr.risk}件`);
+  if (sr.leverage) skipParts.push(`信用余力不足${sr.leverage}件`);
+  if (sr.maxpos) skipParts.push(`1銘柄上限超過${sr.maxpos}件`);
+  if (sr.position_limit) skipParts.push(`採用上限到達${sr.position_limit}件`);
+  const skipLine = skipParts.length > 0 ? `<div style="margin-top:4px; color:#94a3b8; font-size:11px;">見送り内訳: ${skipParts.join(' / ')}</div>` : '';
+
   summaryElem.innerHTML = `
     <div class="portfolio-summary-grid">
       <div class="portfolio-summary-item"><span class="portfolio-summary-label">採用銘柄数</span><span class="portfolio-summary-val">${s.n_positions} / ${s.n_candidates_evaluated}候補</span></div>
@@ -500,6 +524,7 @@ function openPortfolioModal() {
       <div class="portfolio-summary-item"><span class="portfolio-summary-label">想定最大損失合計</span><span class="portfolio-summary-val" style="color:#f87171;">${s.total_risk_yen.toLocaleString()}円</span></div>
     </div>
     <div style="margin-top:6px; color:#64748b; font-size:11px;">資金${capital.toLocaleString()}円・リスク${riskPct}%・レバレッジ${leverage}倍・1銘柄上限${maxPositionPct}%で計算(現在の入力値と連動)</div>
+    ${skipLine}
   `;
 
   if (currentPortfolio.positions.length === 0) {
@@ -529,7 +554,7 @@ function copyPortfolioMemo() {
   if (!currentPortfolio || !currentPortfolio.positions || currentPortfolio.positions.length === 0) return;
   const s = currentPortfolio.summary;
   const lines = currentPortfolio.positions.map(p =>
-    `${p.ticker.replace('.T', '')} ${(p.action || '').replace(/[^A-Za-z ]/g, '').trim()} 買成${parseFloat(p.price).toLocaleString()}円 ${p.recommended_shares.toLocaleString()}株 (概算${p.estimated_cost_yen.toLocaleString()}円${p.leverage_capped ? ' ※信用上限' : ''})`
+    `${p.ticker.replace('.T', '')} ${(p.action || '').replace(/[^A-Za-z ]/g, '').trim()} 翌営業日引成(終値${parseFloat(p.price).toLocaleString()}円基準) ${p.recommended_shares.toLocaleString()}株 (概算${p.estimated_cost_yen.toLocaleString()}円${p.leverage_capped ? ' ※信用上限' : ''})`
   );
   const memoText =
 `【本日のポートフォリオ発注メモ】
@@ -546,6 +571,81 @@ document.getElementById('btn-close-portfolio').addEventListener('click', closePo
 document.getElementById('btn-copy-portfolio-memo').addEventListener('click', copyPortfolioMemo);
 document.getElementById('portfolio-modal-overlay').addEventListener('click', (e) => {
   if (e.target.id === 'portfolio-modal-overlay') closePortfolioModal();
+});
+
+// --- トラッキングモーダル ---
+// pipeline/update_tracking_log.pyが蓄積するdata/tracking_log.csv(ポートフォリオ採用
+// 銘柄の推奨と実際の値動きの突き合わせ記録)を表示する。バックテストでは得られない、
+// 実運用でのアウトオブサンプル検証の答え合わせ。
+function openTrackingModal() {
+  const overlay = document.getElementById('tracking-modal-overlay');
+  const summaryElem = document.getElementById('tracking-summary');
+  const tbody = document.getElementById('tracking-table-body');
+
+  const { records } = loadTrackingLog(BASE_DIR);
+
+  if (records.length === 0) {
+    summaryElem.innerHTML = '<span style="color:#64748b;">トラッキングデータがまだありません(ポートフォリオに採用銘柄がある日に全自動更新を実行すると記録が始まります)</span>';
+    tbody.innerHTML = '';
+    overlay.hidden = false;
+    return;
+  }
+
+  const resolved = records.filter(r => r.status === 'RESOLVED');
+  const pending = records.filter(r => r.status === 'PENDING');
+  const awaitingEntry = records.filter(r => r.status === 'AWAITING_ENTRY');
+  const wins = resolved.filter(r => parseFloat(r.actual_ret_pct) > 0);
+  const losses = resolved.filter(r => parseFloat(r.actual_ret_pct) < 0);
+  const winRate = resolved.length > 0 ? (wins.length / resolved.length * 100) : null;
+  const lossSum = losses.reduce((s, r) => s + Math.abs(parseFloat(r.actual_ret_pct)), 0);
+  const winSum = wins.reduce((s, r) => s + parseFloat(r.actual_ret_pct), 0);
+  const pf = lossSum > 0 ? winSum / lossSum : null;
+  const avgRet = resolved.length > 0
+    ? resolved.reduce((s, r) => s + (parseFloat(r.actual_ret_pct) || 0), 0) / resolved.length
+    : null;
+
+  summaryElem.innerHTML = `
+    <div class="portfolio-summary-grid">
+      <div class="portfolio-summary-item"><span class="portfolio-summary-label">エントリー待ち / 保有中 / 確定済み</span><span class="portfolio-summary-val">${awaitingEntry.length} / ${pending.length} / ${resolved.length}件</span></div>
+      <div class="portfolio-summary-item"><span class="portfolio-summary-label">勝率(確定済み)</span><span class="portfolio-summary-val">${winRate !== null ? winRate.toFixed(1) + '%' : '-'}</span></div>
+      <div class="portfolio-summary-item"><span class="portfolio-summary-label">PF(確定済み)</span><span class="portfolio-summary-val">${pf !== null ? pf.toFixed(2) : '-'}</span></div>
+      <div class="portfolio-summary-item"><span class="portfolio-summary-label">平均リターン</span><span class="portfolio-summary-val" style="color:${avgRet >= 0 ? '#4ade80' : '#f87171'};">${avgRet !== null ? (avgRet*100).toFixed(2) + '%' : '-'}</span></div>
+    </div>
+  `;
+
+  const sorted = [...records].sort((a, b) => (a.entry_date < b.entry_date ? 1 : -1));
+  tbody.innerHTML = sorted.map(r => {
+    const isResolved = r.status === 'RESOLVED';
+    const isAwaitingEntry = r.status === 'AWAITING_ENTRY';
+    const statusLabel = isResolved ? '確定' : (isAwaitingEntry ? 'エントリー待ち' : '保有中');
+    const ret = parseFloat(r.actual_ret_pct);
+    const retStr = isResolved && !isNaN(ret) ? `${(ret*100).toFixed(2)}%` : '-';
+    const retColor = isResolved ? (ret >= 0 ? '#4ade80' : '#f87171') : '#64748b';
+    const entryPriceStr = isAwaitingEntry ? '-(翌営業日引成待ち)' : `${parseFloat(r.entry_price).toLocaleString()}円`;
+    return `
+      <tr>
+        <td style="text-align:left;">${r.entry_date}</td>
+        <td style="text-align:left;"><strong>${r.ticker.replace('.T', '')}</strong></td>
+        <td style="text-align:center;">${(r.action || '').replace(/[^A-Za-z ]/g, '').trim()}</td>
+        <td>${statusLabel}</td>
+        <td>${entryPriceStr}</td>
+        <td>${isResolved ? (r.exit_reason || '-') : '-'}</td>
+        <td style="color:${retColor};">${retStr}</td>
+      </tr>
+    `;
+  }).join('');
+
+  overlay.hidden = false;
+}
+
+function closeTrackingModal() {
+  document.getElementById('tracking-modal-overlay').hidden = true;
+}
+
+document.getElementById('btn-show-tracking').addEventListener('click', openTrackingModal);
+document.getElementById('btn-close-tracking').addEventListener('click', closeTrackingModal);
+document.getElementById('tracking-modal-overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'tracking-modal-overlay') closeTrackingModal();
 });
 
 // イベントリスナー
@@ -578,6 +678,10 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && !document.getElementById('portfolio-modal-overlay').hidden) {
     closePortfolioModal();
+    return;
+  }
+  if (e.key === 'Escape' && !document.getElementById('tracking-modal-overlay').hidden) {
+    closeTrackingModal();
     return;
   }
   if (document.activeElement.tagName === 'INPUT') return;

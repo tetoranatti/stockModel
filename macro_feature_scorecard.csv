@@ -1,0 +1,17 @@
+feature,ic_standalone,n,regime_ic_max,best_regime,lookahead_gap,year_sign_consistency,missing_rate,max_corr_with_existing,verdict,note
+vix_overnight_chg,-0.2285,651,0.3232,LOW,0.1050,1.00,0.083,0.0874,fail_lookahead,strong standalone IC but regime signal inflated by lookahead
+market_vol_regime_x_high,0.1022,651,0.1576,HIGH,0.0652,0.67,0.083,0.2839,fail_lookahead,interaction term uses stale lookahead is_high internally
+cta_net_norm_x_low,0.1016,651,0.4221,LOW,0.2435,0.67,0.083,0.5864,fail_lookahead,"CAVEAT: this cached column uses OLD lookahead is_low; NOT the corrected production feature (which passed its own 5-seed AUC validation separately)"
+topix_ret_5d,-0.0964,651,0.3510,LOW,0.1417,1.00,0.083,0.5309,fail_lookahead,strong standalone IC but regime signal inflated by lookahead
+usdjpy_chg_x_low,0.0831,651,0.0388,MID,NaN,1.00,0.083,0.0749,fail_gap_uncomputable,interaction term uses stale lookahead is_low internally
+cta_momentum_x_mid,0.0706,651,0.1260,MID,0.0648,1.00,0.083,0.5140,fail_lookahead,interaction term uses stale lookahead is_mid internally
+nk225_ret_5d,-0.0617,651,0.3837,LOW,0.1953,0.67,0.083,0.5720,fail_lookahead,strong standalone IC but regime signal inflated by lookahead
+usdjpy_chg,0.0506,651,0.0561,MID,0.0491,0.67,0.083,0.0984,PASS,only candidate passing all 6 criteria; not yet NN-tested
+market_vol_regime,0.0103,651,0.1121,HIGH,0.1107,0.33,0.083,0.2558,fail_weak_ic_and_year,
+
+# --- existing production macro features (same 6-criteria test, group=BASE_MACRO_COLS) ---
+pin_dist_ratio,-0.1337,651,0.2441,LOW,0.0367,1.00,0.083,0.4892,PASS,existing production feature; strongest standalone macro signal
+wall_spread,-0.0657,651,0.1783,HIGH,0.0148,1.00,0.083,0.1403,PASS,existing production feature
+nk_ret_norm,-0.0306,651,0.1106,LOW,0.0577,0.67,0.083,0.4892,fail_lookahead_marginal,existing production feature; gap 0.058 just above 0.05 threshold
+cta_momentum,0.0197,651,0.1771,LOW,0.1105,0.67,0.083,0.4622,fail_weak_ic_marginal,existing production feature; standalone IC just under 0.02 threshold
+cta_net_norm,-0.0113,651,0.4221,LOW,0.2435,0.33,0.083,0.4622,fail_multi,"existing production feature; raw form is unstable/lookahead-sensitive on its own -- validates why cta_net_norm_x_low (proper no-lookahead interaction) was engineered separately and validated via NN AUC instead"

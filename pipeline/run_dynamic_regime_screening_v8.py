@@ -142,6 +142,13 @@ def main():
             if len(df) < SEQ_LEN + 95 or (df['Volume'] == 0).all():  # +95 = rolling_beta(90日窓)+余裕
                 continue
 
+            # 必要最小限の窓(SEQ_LEN+95)にスライスしてから特徴量計算・ログ変換・横断面統計に
+            # 回す。最終的にモデル入力に使うのは末尾SEQ_LEN行だけなので、フェッチ時の
+            # ~130日分をそのまま保持する必要は無い。銘柄数が数百〜数千に増えても
+            # per_ticker_df/apply_log_transform/横断面統計のメモリ・計算量が
+            # 不必要に伸びないようにするため、ここで早めに切り詰める。
+            df = df.tail(SEQ_LEN + 95).copy()
+
             turnover_5d = (df['Close'] * df['Volume']).rolling(5).mean().iloc[-1]
             if turnover_5d < MIN_TURNOVER:
                 continue
@@ -152,6 +159,15 @@ def main():
             df = df.join(macro_feed, how='left')
             df[macro_cols] = df[macro_cols].ffill()
             df = df.dropna(subset=['ATR', 'rolling_beta'] + macro_cols)
+
+            # 注: rolling_beta は compute_stock_features() 内で .fillna(1.0) されているため、
+            # 90日窓のウォームアップ期間(未成熟な値)もNaNではなく1.0で埋まって上のdropnaを
+            # すり抜ける(学習・バックテストと挙動を揃えるため意図的にそうなっている共有関数
+            # なので、ここでは変更しない)。そのため末尾のみ明示的に切り出し、
+            # ウォームアップ分を確実に除いた「本当に成熟したbeta値を持つ行」だけを保持する。
+            # SEQ_LEN+95でスライスした時点でBETA_WINDOW(90日)分のウォームアップを差し引いても
+            # 常にSEQ_LEN+5行以上残る計算のため、このtailで安全にウォームアップ後の範囲に収まる。
+            df = df.tail(SEQ_LEN + 5)
 
             if len(df) < SEQ_LEN:
                 continue
@@ -275,7 +291,6 @@ def main():
                 sec_shock=sec_shock,
                 sec_advice=sec_advice,
                 sec_summary=sec_summary,
-                flow_level=regime['flow_level']
             )
 
             target_price, stop_price = calculate_target_stop_levels(curr_close, curr_atr)
@@ -407,6 +422,7 @@ def main():
         'estimated_cost_yen': 'standalone_cost_yen',
         'estimated_max_loss_yen': 'standalone_max_loss_yen',
         'leverage_capped': 'standalone_leverage_capped',
+        'maxpos_capped': 'standalone_maxpos_capped',
     })
     res_df = pd.concat([res_df.reset_index(drop=True), position_df.reset_index(drop=True)], axis=1)
     n_leverage_capped = int(res_df['standalone_leverage_capped'].sum())
@@ -464,12 +480,15 @@ def main():
     # --- ポートフォリオ構築: 複数銘柄を同時に買う前提で資金・信用枠を共有しながら配分 ---
     # (standalone_sharesを単純合計すると資金・信用枠を超過しうるため、優先順位
     # [priority→ev_score、既にres_dfはこの順でソート済み]順に残り予算内で配分する)
+    # max_positions=k_final を明示的に渡す(地合い危険度ゾーンによるK調整。渡さないと
+    # build_portfolio()の既定値20に黙って再制限され、SAFEゾーンのK=25拡張が
+    # 効かなくなるバグがあったため修正)
     actionable = res_df[res_df['action'].isin(["🔥 STRONG BUY", "🎯 BUY"])].copy()
-    portfolio_rows, portfolio_summary = build_portfolio(actionable.to_dict(orient="records"))
+    portfolio_rows, portfolio_summary = build_portfolio(actionable.to_dict(orient="records"), max_positions=k_final)
 
     print("\n" + "=" * 95)
     print(f"【ポートフォリオ】(資金{DEFAULT_CAPITAL:,}円・リスク{DEFAULT_RISK_PCT}%・レバレッジ{DEFAULT_LEVERAGE}倍・"
-          f"1銘柄上限{DEFAULT_MAX_POSITION_PCT*100:.0f}%・最大{BASE_K}銘柄)")
+          f"1銘柄上限{DEFAULT_MAX_POSITION_PCT*100:.0f}%・最大{k_final}銘柄[{regime_zone_info['zone']}])")
     print("=" * 95)
     if not portfolio_rows:
         print("  該当銘柄なし")
@@ -482,6 +501,14 @@ def main():
               f"{portfolio_summary['max_buying_power']:,.0f}円 ({portfolio_summary['buying_power_usage_pct']:.1f}%)")
         print(f"  想定最大損失合計: {portfolio_summary['total_risk_yen']:,}円 "
               f"(資金比 {portfolio_summary['total_risk_yen']/DEFAULT_CAPITAL*100:.2f}%)")
+        src = portfolio_summary.get('skip_reason_counts', {})
+        skip_parts = []
+        if src.get('risk'): skip_parts.append(f"損切幅超過{src['risk']}件")
+        if src.get('leverage'): skip_parts.append(f"信用余力不足{src['leverage']}件")
+        if src.get('maxpos'): skip_parts.append(f"1銘柄上限超過{src['maxpos']}件")
+        if src.get('position_limit'): skip_parts.append(f"採用上限到達{src['position_limit']}件")
+        if skip_parts:
+            print(f"  見送り内訳: {' / '.join(skip_parts)}")
     print("=" * 95)
 
     try:

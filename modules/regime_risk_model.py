@@ -6,6 +6,10 @@
 # (5シードアンサンブルAUC≈0.64)、この用途にはこちらを使う。
 # USD/JPY特徴量(Δ1日/5日・20日ボラ・EMA(5,20)差=トレンド強度)を追加検証したところ
 # AUC 0.641→0.668、PR-AUC 0.752→0.779まで改善したため採用(5シードアンサンブルで確認済み)。
+# cta_net_norm(大口手口フロー)はLOWボラ相場でだけ強く効くことがregime別IC分析で判明
+# (look-ahead除去後もIC=+0.08、2024/2025年とも符号安定)したため、LOW限定の交互作用項
+# cta_net_norm_x_lowを追加。5シード平均AUC 0.621→0.658、かつシード間の標準偏差が
+# 0.104→0.020まで大幅に安定化(2026-09-18)。
 import os
 import numpy as np
 import pandas as pd
@@ -19,6 +23,7 @@ USDJPY_CSV_PATH = os.path.join(BASE_DIR, "data", "usdjpy_fred.csv")
 REGIME_COLS = [
     'cta_net_norm', 'idx_ret_5d', 'idx_ret_20d', 'nk_ret_norm', 'vix_level_norm', 'vix_change_norm', 'breadth_5d',
     'usdjpy_ret_1d', 'usdjpy_ret_5d', 'usdjpy_vol_20d', 'usdjpy_ema_diff',
+    'cta_net_norm_x_low',
 ]
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -36,12 +41,28 @@ class TinyRegimeMLP(nn.Module):
         return self.net(x).squeeze(-1)
 
 
+def _compute_vol_regime_is_low(macro_df, min_periods=120):
+    """市場20日実現ボラの拡大窓(その時点までのデータのみ)分位点を使い、
+    その日がLOWボラ相場(下位1/3)かどうかを判定する(0/1)。全期間分位点だと
+    未来情報を使ってしまう(実測で27%が誤分類)ため、必ず拡大窓を使う。"""
+    realized_vol = macro_df['NK_Ret'].abs().rolling(20).mean()
+    q1_exp = realized_vol.expanding(min_periods=min_periods).quantile(1 / 3)
+    is_low = (realized_vol < q1_exp).astype(float)
+    is_low[q1_exp.isna()] = 0.0
+    return is_low
+
+
 def add_regime_features(macro_df):
     """load_macro_slim5()/load_macro_environment()の出力にidx_ret_5d/20d・VIX特徴量を追加する。
     (breadth_5dは銘柄横断データが要るため別途add_breadth_featureで追加する)"""
     macro_df = macro_df.copy()
     macro_df['idx_ret_5d'] = macro_df['NK_Close'].pct_change(5, fill_method=None).fillna(0.0)
     macro_df['idx_ret_20d'] = macro_df['NK_Close'].pct_change(20, fill_method=None).fillna(0.0)
+
+    # cta_net_norm(既存)はLOWボラ相場でだけ強く効く(regime別IC検証、look-ahead除去後もIC=+0.08、
+    # 2024/2025年とも符号安定)ことが判明したため、LOW限定の交互作用項を追加する。
+    is_low = _compute_vol_regime_is_low(macro_df)
+    macro_df['cta_net_norm_x_low'] = macro_df['cta_net_norm'] * is_low
 
     vix = pd.read_csv(VIX_CSV_PATH, index_col=0, parse_dates=True)['VIXCLS']
     vix = vix.reindex(macro_df.index).ffill()

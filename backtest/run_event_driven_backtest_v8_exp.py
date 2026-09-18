@@ -28,6 +28,8 @@ UNIVERSE_PATH_BACKTEST = os.path.join(BASE_DIR, "universe_backtest_tickers.txt")
 ENSEMBLE_SEEDS = [42, 43, 44, 45, 46]
 MODEL_PATHS = [os.path.join(BASE_DIR, f"swing_model_v8_ensemble_seed{s}.pt") for s in ENSEMBLE_SEEDS]
 MODEL_PATHS_TOPIX = [os.path.join(BASE_DIR, f"swing_model_v8_topix_seed{s}.pt") for s in ENSEMBLE_SEEDS]
+# エントリー価格を「翌営業日始値」とする実験用チェックポイント(train_model_v8_exp.py --next-open-entry で学習)
+MODEL_PATHS_NEXTOPEN = [os.path.join(BASE_DIR, f"swing_model_v8_nextopen_seed{s}.pt") for s in ENSEMBLE_SEEDS]
 CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 UNIVERSE_BARS_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
 MIN_CROSS_SECTION = 20
@@ -78,20 +80,26 @@ def compute_max_drawdown(equity_curve):
             max_dd = min(max_dd, (eq - peak) / peak)
     return max_dd
 
-def run_backtest(return_source="nk225", use_expanded_universe=False):
+def run_backtest(return_source="nk225", use_expanded_universe=False, next_open_entry=False, seeds=None):
+    seeds = seeds or ENSEMBLE_SEEDS
     print("=" * 85)
     print(f"【v8 ランキング損失+横断面正規化+アンサンブル版 閾値探索バックテスト "
-          f"(指数ソース: {return_source}, 拡張ユニバース: {use_expanded_universe})】")
+          f"(指数ソース: {return_source}, 拡張ユニバース: {use_expanded_universe}, "
+          f"next_open_entry: {next_open_entry}, seeds: {seeds})】")
     print("=" * 85)
 
-    model_paths = MODEL_PATHS_TOPIX if return_source == "topix" else MODEL_PATHS
+    if next_open_entry:
+        base_paths = MODEL_PATHS_NEXTOPEN
+    else:
+        base_paths = MODEL_PATHS_TOPIX if return_source == "topix" else MODEL_PATHS
+    model_paths = [p for p, s in zip(base_paths, ENSEMBLE_SEEDS) if s in seeds]
     missing = [p for p in model_paths if not os.path.exists(p)]
     if missing:
         print(f"[!] モデル重みが見つかりません: {missing}")
         return
 
     models, stock_cols, macro_cols = load_trained_models_ensemble(model_paths)
-    print(f"[*] アンサンブル {len(models)} モデルを読み込みました (seeds={ENSEMBLE_SEEDS})")
+    print(f"[*] アンサンブル {len(models)} モデルを読み込みました (seeds={seeds})")
 
     macro_df = load_macro_slim5(return_source=return_source)
     macro_feed = macro_df[macro_cols]
@@ -164,6 +172,7 @@ def run_backtest(return_source="nk225", use_expanded_universe=False):
             vals_s_norm = norm_s.values
             vals_m = df[macro_cols].values
             closes, highs, lows, atrs = df['Close'].values, df['High'].values, df['Low'].values, df['ATR'].values
+            opens = df['Open'].values
             betas = df['rolling_beta'].values
 
             indices = list(range(split_idx, n_samples - holding_period))
@@ -178,7 +187,9 @@ def run_backtest(return_source="nk225", use_expanded_universe=False):
 
                 p_win, p_stop, _ = predict_probabilities_ensemble(models, w_s, w_m)
 
-                entry_p = closes[idx]
+                # next_open_entry=True: シグナル(idx時点の終値ベース特徴量)に対して
+                # 実際に約定可能な最速タイミングである翌営業日始値を約定価格とする
+                entry_p = opens[idx + 1] if next_open_entry else closes[idx]
                 upper_p = entry_p + (2.0 * atrs[idx])
                 lower_p = entry_p - (1.0 * atrs[idx])
 
@@ -232,7 +243,11 @@ def run_backtest(return_source="nk225", use_expanded_universe=False):
     # トレード単位の生データをキャッシュ(空売りモデル等、別の切り口で再分析する際に
     # PF推論(最も重い処理)をやり直さずに済むようにする)
     universe_suffix = "_universe564" if use_expanded_universe else ""
-    trades_cache_path = os.path.join(BASE_DIR, "data", "cache", f"backtest_trades_{return_source}{universe_suffix}.parquet")
+    nextopen_suffix = "_nextopen" if next_open_entry else ""
+    seeds_suffix = "" if seeds == ENSEMBLE_SEEDS else "_seeds" + "-".join(str(s) for s in seeds)
+    trades_cache_path = os.path.join(
+        BASE_DIR, "data", "cache",
+        f"backtest_trades_{return_source}{universe_suffix}{nextopen_suffix}{seeds_suffix}.parquet")
     df_all.to_parquet(trades_cache_path)
     print(f"[+] トレード単位データをキャッシュ: {trades_cache_path} ({len(df_all)}件)")
 
@@ -364,4 +379,10 @@ def print_monthly_breakdown(df_all, th, label):
 if __name__ == "__main__":
     return_source = "topix" if "--topix" in sys.argv else "nk225"
     use_expanded_universe = "--expanded-universe" in sys.argv
-    run_backtest(return_source=return_source, use_expanded_universe=use_expanded_universe)
+    next_open_entry = "--next-open-entry" in sys.argv
+    seeds = None
+    for arg in sys.argv:
+        if arg.startswith("--seeds="):
+            seeds = [int(s) for s in arg.split("=", 1)[1].split(",")]
+    run_backtest(return_source=return_source, use_expanded_universe=use_expanded_universe,
+                 next_open_entry=next_open_entry, seeds=seeds)

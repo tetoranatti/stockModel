@@ -42,6 +42,7 @@
     <div class="header-actions">
       <button class="btn btn-green" id="btn-run-all">⚡ 全自動更新＆スクリーニング</button>
       <button class="btn" id="btn-show-portfolio">📊 ポートフォリオ</button>
+      <button class="btn" id="btn-show-tracking">📈 トラッキング実績</button>
       <button class="btn" id="load-btn">CSV再読込</button>
     </div>
   </header>
@@ -179,6 +180,34 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-copy" id="btn-copy-portfolio-memo">📋 一括SBI発注メモをコピー</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- トラッキングモーダル: pipeline/update_tracking_log.pyが蓄積するdata/tracking_log.csv
+       (ポートフォリオ採用銘柄の推奨と実際の値動きの突き合わせ記録)を表示する -->
+  <div id="tracking-modal-overlay" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>📈 トラッキング実績(実運用の答え合わせ)</span>
+        <button class="btn btn-copy" id="btn-close-tracking" title="閉じる (Esc)">✕</button>
+      </div>
+      <div class="modal-body" id="tracking-summary">-</div>
+      <div class="modal-body" style="flex: 1; overflow-y: auto; padding-top: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:left;">エントリー日</th>
+              <th style="text-align:left;">コード</th>
+              <th style="text-align:center;">判定</th>
+              <th>状態</th>
+              <th>エントリー価格</th>
+              <th>結果</th>
+              <th>リターン</th>
+            </tr>
+          </thead>
+          <tbody id="tracking-table-body"></tbody>
+        </table>
       </div>
     </div>
   </div>

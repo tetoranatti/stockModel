@@ -153,4 +153,27 @@ function loadPortfolio(baseDir) {
   }
 }
 
-module.exports = { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta, loadPortfolio };
+// pipeline/update_tracking_log.py が蓄積する data/tracking_log.csv を読む。
+// ポートフォリオ採用銘柄の推奨と実際の値動き(利確/損切/タイムアウト)を突き合わせた
+// 記録。バックテストでは得られない、実運用でのアウトオブサンプル検証データ。
+function loadTrackingLog(baseDir) {
+  const csvPath = path.join(baseDir, 'data', 'tracking_log.csv');
+  if (!fs.existsSync(csvPath)) return { records: [] };
+
+  const raw = fs.readFileSync(csvPath, 'utf-8');
+  const lines = raw.trim().split(/\r?\n/);
+  if (lines.length <= 1) return { records: [] };
+
+  const headers = parseCsvLine(lines[0]).map(h => h.trim());
+  const records = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const row = parseCsvLine(lines[i]);
+    const rec = {};
+    headers.forEach((h, idx) => { rec[h] = (row[idx] || '').trim(); });
+    records.push(rec);
+  }
+  return { records };
+}
+
+module.exports = { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta, loadPortfolio, loadTrackingLog };

@@ -85,3 +85,79 @@ class DualStream_GRU_PreLN_Transformer(nn.Module):
         fused = self.cross_attn(feat_s, feat_m)
         pooled = self.pool(fused)
         return self.classifier(pooled)
+
+
+# ============================================================================
+# 以下2クラスは「seq_len=10のように短い系列ではGRU+Transformerの多重直列は
+# 過剰で、ノイズ耐性・汎化性能を損なっているのでは」という仮説を検証するための
+# 実験用アーキテクチャ(train_model_v8_exp.py --arch=gru_only / transformer_only)。
+# 本番のDualStream_GRU_PreLN_Transformerはそのまま維持し、比較対象として追加する。
+# ============================================================================
+
+class GRUOnlyModel(nn.Module):
+    """GRU単体案: SelfAttention/CrossAttentionを撤去し、2本のGRUの出力を
+    DecayPoolingで集約後、単純結合(concat)して分類する。"""
+    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_classes=3, dropout=0.2, **kwargs):
+        super().__init__()
+        self.stock_gru = nn.GRU(stock_dim, hidden_dim, batch_first=True, num_layers=1)
+        self.macro_gru = nn.GRU(macro_dim, hidden_dim, batch_first=True, num_layers=1)
+        self.pool = DecayPooling(seq_len=10)
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim * 2, 16),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(16, num_classes)
+        )
+
+    def forward(self, x_stock, x_macro):
+        h_s, _ = self.stock_gru(x_stock)
+        h_m, _ = self.macro_gru(x_macro)
+        fused = torch.cat([self.pool(h_s), self.pool(h_m)], dim=-1)
+        return self.classifier(fused)
+
+
+class SinusoidalPositionalEncoding(nn.Module):
+    def __init__(self, hidden_dim, seq_len=10):
+        super().__init__()
+        pe = torch.zeros(seq_len, hidden_dim)
+        position = torch.arange(0, seq_len, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, hidden_dim, 2).float() * (-np.log(10000.0) / hidden_dim))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe.unsqueeze(0))
+
+    def forward(self, x):
+        return x + self.pe[:, :x.size(1), :]
+
+
+class TransformerOnlyModel(nn.Module):
+    """Transformer単体案: GRUを撤去し、代わりに線形射影+正弦波Positional Encodingで
+    時系列位置情報を与えた上でSelfAttention/CrossAttentionに通す。"""
+    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2, **kwargs):
+        super().__init__()
+        self.stock_proj = nn.Linear(stock_dim, hidden_dim)
+        self.macro_proj = nn.Linear(macro_dim, hidden_dim)
+        self.pos_enc = SinusoidalPositionalEncoding(hidden_dim, seq_len=10)
+
+        self.stock_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+        self.macro_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+        self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout)
+        self.pool = DecayPooling(seq_len=10)
+
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, 16),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(16, num_classes)
+        )
+
+    def forward(self, x_stock, x_macro):
+        h_s = self.pos_enc(self.stock_proj(x_stock))
+        h_m = self.pos_enc(self.macro_proj(x_macro))
+
+        feat_s = self.stock_encoder(h_s)
+        feat_m = self.macro_encoder(h_m)
+
+        fused = self.cross_attn(feat_s, feat_m)
+        pooled = self.pool(fused)
+        return self.classifier(pooled)

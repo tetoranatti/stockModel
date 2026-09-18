@@ -393,10 +393,20 @@ def main():
     pivot_df = filtered_df.unstack(level='ticker')
     pivot_df = pivot_df.swaplevel(0, 1, axis=1).sort_index(axis=1)
 
-    today_str = datetime.date.today().strftime("%Y%m%d")
+    # ファイル名は実行時の暦日ではなく、実際に取得できた最新確定足の日付を使う。
+    # 大引け前に実行するとJ-Quantsにまだ本日分の確定足が無く、pivot_dfの実際の最新日は
+    # 前日のままになる。それでも暦日で名前を付けると「prices_今日.parquet」なのに
+    # 中身は前日データ、という取り違えが起きてしまう(2026-09-18に発覚)。
+    today_d = datetime.date.today()
+    actual_latest_date = pivot_df.index.max().date()
+    if actual_latest_date < today_d:
+        print(f"[!] 警告: 本日({today_d.strftime('%Y-%m-%d')})の確定足がまだ取得できていません"
+              f"(直近の確定足は{actual_latest_date.strftime('%Y-%m-%d')}分)。"
+              f"大引け後に改めて実行してください。prices_{today_d.strftime('%Y%m%d')}.parquetは作成しません。")
+    today_str = actual_latest_date.strftime("%Y%m%d")
     cache_file = os.path.join(CACHE_DIR, f"prices_{today_str}.parquet")
     pivot_df.to_parquet(cache_file)
-    print(f"[+] 当日株価キャッシュ保存完了: {cache_file}")
+    print(f"[+] 株価キャッシュ保存完了({actual_latest_date.strftime('%Y-%m-%d')}分): {cache_file}")
 
     screener_out = os.path.join(BASE_DIR, "screener_result.csv")
     pd.DataFrame({"コード": [t.replace(".T", "") for t in qualified_tickers]}).to_csv(screener_out, index=False, encoding="cp932")

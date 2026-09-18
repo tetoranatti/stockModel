@@ -28,6 +28,10 @@ UNIVERSE_PATH = os.path.join(BASE_DIR, "universe_150_tickers.txt")
 MODEL_SAVE_PATH_TEMPLATE = os.path.join(BASE_DIR, "swing_model_v8_ensemble_seed{seed}.pt")
 # 日経225の代わりにTOPIXでベータ・モメンタム特徴量を計算する実験用(本番とは別チェックポイント)
 MODEL_SAVE_PATH_TEMPLATE_TOPIX = os.path.join(BASE_DIR, "swing_model_v8_topix_seed{seed}.pt")
+# エントリー価格を「当日終値」ではなく「翌営業日始値」とする実験用(本番とは別チェックポイント)。
+# 単一シードでの影響確認用の実験チェックポイントであり、本番の
+# swing_model_v8_ensemble_seed{42..46}.ptは一切上書きしない。
+MODEL_SAVE_PATH_TEMPLATE_NEXTOPEN = os.path.join(BASE_DIR, "swing_model_v8_nextopen_seed{seed}.pt")
 ENSEMBLE_SEEDS = [42, 43, 44, 45, 46]
 CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 UNIVERSE_BARS_CACHE_PATH = os.path.join(CACHE_DIR, "train_universe_bars.parquet")
@@ -143,11 +147,14 @@ class SameTickerBatchSampler(Sampler):
 # =============================================================================
 # 3. データセット構築 (連続値ret_pctラベリング、横断面正規化、ランキング損失用)
 # =============================================================================
-def _simulate_ret_pct(closes, highs, lows, atrs, holding_period):
+def _simulate_ret_pct(closes, highs, lows, atrs, holding_period, opens=None, next_open_entry=False):
     n_bars = len(closes)
     targets = np.full(n_bars, np.nan)
     for idx in range(n_bars - holding_period):
-        entry_p = closes[idx]
+        # next_open_entry=True: シグナル(idx時点の終値ベース特徴量)に対して、
+        # 実際にエントリー可能な最速タイミングである翌営業日始値を約定価格とする
+        # (idx+holding_periodの範囲内であることはループ上限で保証済み)。
+        entry_p = opens[idx + 1] if next_open_entry else closes[idx]
         upper_p = entry_p + (2.0 * atrs[idx])
         lower_p = entry_p - (1.0 * atrs[idx])
         exit_p = None
@@ -172,7 +179,7 @@ def _simulate_ret_pct(closes, highs, lows, atrs, holding_period):
     return targets
 
 
-def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10):
+def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10, next_open_entry=False):
     stock_cols = STOCK_FEATURE_COLS
     macro_cols = ['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentum', 'nk_ret_norm']
 
@@ -231,7 +238,9 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
             norm_s = normalize_cross_sectional(df, cross_mean, cross_std, stock_cols)
 
             closes, highs, lows, atrs = df['Close'].values, df['High'].values, df['Low'].values, df['ATR'].values
-            targets = _simulate_ret_pct(closes, highs, lows, atrs, holding_period)
+            opens = df['Open'].values
+            targets = _simulate_ret_pct(closes, highs, lows, atrs, holding_period,
+                                         opens=opens, next_open_entry=next_open_entry)
 
             vals_s_norm = norm_s.values
             vals_m = df[macro_cols].values
@@ -273,7 +282,7 @@ def build_universe_dataset_slim(tickers, macro_df, seq_len=10, holding_period=10
 # =============================================================================
 # 4. 学習ループ
 # =============================================================================
-def train(return_source="nk225"):
+def train(return_source="nk225", next_open_entry=False, seeds=None):
     if os.path.exists(UNIVERSE_PATH):
         with open(UNIVERSE_PATH, "r", encoding="utf-8") as f:
             tickers = [line.strip() for line in f if line.strip()]
@@ -281,19 +290,28 @@ def train(return_source="nk225"):
         tickers = ["7203.T", "6758.T", "8035.T", "8306.T", "9432.T", "7167.T", "4519.T", "5726.T"]
 
     macro_df = load_macro_slim5(return_source=return_source)
-    train_data, val_data, s_cols, m_cols = build_universe_dataset_slim(tickers, macro_df)
+    train_data, val_data, s_cols, m_cols = build_universe_dataset_slim(
+        tickers, macro_df, next_open_entry=next_open_entry)
     tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx = train_data
     va_x_s, va_x_m, va_y, va_tid, va_tidx = val_data
 
-    print(f"[+] データ構築完了: Train = {len(tr_y)}, Val = {len(va_y)} (指数ソース: {return_source})")
+    print(f"[+] データ構築完了: Train = {len(tr_y)}, Val = {len(va_y)} "
+          f"(指数ソース: {return_source}, next_open_entry: {next_open_entry})")
     print(f"  - ret_pct分布: Train mean={tr_y.mean():.4f} std={tr_y.std():.4f} | "
           f"Val mean={va_y.mean():.4f} std={va_y.std():.4f}")
 
-    save_template = MODEL_SAVE_PATH_TEMPLATE_TOPIX if return_source == "topix" else MODEL_SAVE_PATH_TEMPLATE
+    if next_open_entry:
+        save_template = MODEL_SAVE_PATH_TEMPLATE_NEXTOPEN
+    else:
+        save_template = MODEL_SAVE_PATH_TEMPLATE_TOPIX if return_source == "topix" else MODEL_SAVE_PATH_TEMPLATE
+
+    seeds = seeds or ENSEMBLE_SEEDS
 
     # 単一シードだと運の良し悪しでPFが大きく振れる(複数シード検証で確認済み)ため、
-    # 複数シードで学習してアンサンブル(予測平均)として本番運用する。
-    for seed in ENSEMBLE_SEEDS:
+    # 本番は複数シードで学習してアンサンブル(予測平均)として運用する。
+    # seeds引数で単一シードに絞れるのは、entry price convention変更などの
+    # 影響を安価に確認するための実験用。
+    for seed in seeds:
         print(f"\n[*] [v8 アンサンブル seed={seed}] 学習開始...")
         train_one_seed(seed, tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx,
                         va_x_s, va_x_m, va_y, va_tid, va_tidx, s_cols, m_cols, save_template)
@@ -376,4 +394,9 @@ def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx,
 
 if __name__ == "__main__":
     return_source = "topix" if "--topix" in sys.argv else "nk225"
-    train(return_source=return_source)
+    next_open_entry = "--next-open-entry" in sys.argv
+    seeds = None
+    for arg in sys.argv:
+        if arg.startswith("--seeds="):
+            seeds = [int(s) for s in arg.split("=", 1)[1].split(",")]
+    train(return_source=return_source, next_open_entry=next_open_entry, seeds=seeds)

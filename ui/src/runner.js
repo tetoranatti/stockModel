@@ -62,6 +62,13 @@ async function runFullPipeline(baseDir, onLog) {
 
   await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'run_dynamic_regime_screening_v8.py'), onLog);
 
+  // 本日のポートフォリオ採用銘柄をトラッキングログに記録し、保留中の過去の推奨を
+  // 本日の値動きで判定する(利確/損切/タイムアウト)。実運用でしか得られない
+  // 本当の意味でのアウトオブサンプル検証を蓄積するための機能。
+  if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'update_tracking_log.py'))) {
+    await runPythonScript(baseDir, path.join(PIPELINE_DIR, 'update_tracking_log.py'), onLog);
+  }
+
   // 各種日次キャッシュの抜け漏れを埋める安全網。既存日はスキップする作りなので
   // 通常はほぼ何もせず一瞬で終わる(実行を忘れた日があった場合だけ効く)。
   if (fs.existsSync(path.join(baseDir, PIPELINE_DIR, 'backfill_sector_sentiment.py'))) {
