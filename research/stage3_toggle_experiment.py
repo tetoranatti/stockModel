@@ -158,9 +158,9 @@ FEATURE_TOGGLES = {
     'pin_dist_ratio': True, 'wall_spread': True, 'cta_net_norm': True, 'cta_momentum': True, 'nk_ret_norm': True,
 
     # --- 株側候補(6項目スクリーニングIC通過) ---
-    'rs60': True,
-    'gap_strength_5': True,
-    'atr_accel': True,
+    'rs60': False,
+    'gap_strength_5': False,
+    'atr_accel': False,
     # --- 株側候補(全体では不合格だがstock_feature_scorecard.csvでbest_regime=LOW) ---
     'atr_term_ratio': False,
     'dist_from_high60': False,
@@ -180,13 +180,13 @@ FEATURE_TOGGLES = {
     'positive_gap_ratio_5': False,
     'gap_follow_through': False,
     # --- マクロ候補(usdjpy_chgのみIC通過) ---
-    'usdjpy_chg': True,
+    'usdjpy_chg': False,
     'market_vol_regime': False,
     'vix_overnight_chg': False,
     'nk225_ret_5d': False,
     'topix_ret_5d': False,
     # --- マージン残高候補(margin_ratio_levelのみIC通過) ---
-    'margin_ratio_level': True,
+    'margin_ratio_level': False,
     'margin_ratio_zscore_12w': False,
     'margin_buy_chg_1w': False,
     'margin_short_chg_1w': False,
@@ -204,7 +204,7 @@ FEATURE_TOGGLES = {
     'cta_net_norm_x_low_v2': False,
 }
 
-MODEL_ARCH = "gru_macro_mlp_cross"  # "dual_stream"(本番) / "gru_only" / "transformer_only" / "gru_macro_mlp_cross"
+MODEL_ARCH = "dual_stream"  # "dual_stream"(本番) / "gru_only" / "transformer_only" / "gru_macro_mlp_cross"
 MODEL_HIDDEN_DIM = 20   # 20:本番と同じ既定値。超軽量版を試すならここを変える(num_headsで割り切れる値に)
 MODEL_NUM_HEADS = 1     # 1:本番と同じ既定値。gru_onlyでは無視される
 STOCK_HIDDEN_DIM = 32   # "gru_macro_mlp_cross"専用: 株側GRUのhidden_dim(2026-09-19追加、ユーザー提案)
@@ -219,6 +219,13 @@ NUM_SELF_ATTN_LAYERS = 1  # Self-Attention(stock_encoder/macro_encoder)の層数
                            # 両対応(gru_onlyでは無視される)。既定1=本番と同じ(1層のみ)
 SEEDS = [42, 43, 44]    # 複数シードでmean/stdを見る(組み合わせによってシード間のばらつきが
                         # 変わるか比較したい場合はここを増減する。単発でよければ[42]だけにする)
+PARALLEL_MAX_CONCURRENT = 8  # base/testのseedループを並列学習する際の同時起動worker数
+                        # (2026-09-19追加。並列化の実現性調査で3seed=2.44x、5seed=2.9倍高速化・
+                        # 結果は逐次と完全一致することを確認済み、詳細は
+                        # research/parallel_seed_sweep.pyと[[feedback_nn_training_performance]]
+                        # 参照。1worker時のGPU稼働率が13-19%だったため、まだ引き上げ余地がある
+                        # かもしれない)。PROFILE_FIRST_EPOCH=Trueのときはこの並列化は使われない
+                        # (逐次ループにフォールバックする)。
 PROFILE_FIRST_EPOCH = False  # Trueにすると、最初のシードのベースライン学習の epoch=1 だけ
                              # torch.profilerで計測し、処理時間トップ10を表示する(それ以外は
                              # 計測オーバーヘッド無し。データ準備 vs 学習 vs 検証のどこが重いか
@@ -232,11 +239,13 @@ VAL_BATCH_SIZE = 1024  # 検証はbackward無しでメモリ圧が低いため�
                         # ペアのみ比較するため、チャンクの切れ目が変わるとval_lossの値も
                         # 僅かに変わる(小数点4桁目程度、early stoppingへの実用上の影響は
                         # ほぼ無いはず。他の最適化と違い厳密には不変ではない点に注意)。
-TRAIN_BATCH_SIZE = 256  # 学習batch。速度は256/512でほぼ線形にスケールするが、勾配のノイズが
-                        # 減るため収束の質(best_val_loss・バックテストPF)が変わりうる。
-                        # 採用前に品質を実際に検証すること(verify_train_batch_size.py参照)。
-                        # ⚠️ 512は実際に試したところ複数シードでNaN化・学習停滞を確認(2026-09-19)。
-                        # 256は問題なし。512以上は避けること。
+TRAIN_BATCH_SIZE = 512  # 学習batch。2026-09-19に256→512へ採用変更(それまでは512でNaN化して
+                        # 256止まりだったが、当時の原因はMAX_PAIR_GAP=20由来のペアマスクの
+                        # スパース性だった、という仮説の通り、gap=5/hp=5/seq_len=5になった今は
+                        # 512でも5seed全てNaN無し。5seed日次Top-5 PF比較: 256はmean=1.525/
+                        # std=0.147/ensemble=1.508/48.6秒/seed、512はmean=1.455/std=0.108/
+                        # ensemble=1.626/34.0秒/seed(1.43倍高速・より安定・ensemble PFも改善)。
+                        # 512超を試す場合はNaN化を複数seedで必ず再確認すること。
 COMMON_SAMPLE_K = 200      # 「共通評価サンプル上のPF」: p_win上位k件(seedごとの候補数nに
                            # 依存しない固定件数)でPFを見る。STRONG BUY閾値だとseedによって
                            # n=0〜数千件までばらつき公平に比較できないための補助指標。
@@ -277,12 +286,18 @@ QUANTILE_LABEL_DOWN = 0.30  # "cross_sectional_quantile"専用: 下位何%をDow
 RET5_HOLDING_DAYS = 5       # "ret5_fixed_threshold"専用: 固定保有日数
 RET5_DOWN_THRESH = -0.03    # "ret5_fixed_threshold"専用: この値未満をDown(離散値0)
 RET5_UP_THRESH = 0.03       # "ret5_fixed_threshold"専用: この値超をUp(離散値2)、残りはHold=1
-USE_REGIME_AWARE_LOSS = True  # Trueにすると、NearPairRankingLossの「同一銘柄・近傍日」ペアに
+USE_REGIME_AWARE_LOSS = False  # Trueにすると、NearPairRankingLossの「同一銘柄・近傍日」ペアに
                         # さらに「同一regime(LOW/MID/HIGH)」制約を加える(2026-09-19追加)。
-                        # near-day(|tidx差|<=MAX_PAIR_GAP=20)ペアの42.7%がregimeを跨いでいる
-                        # ことを実測で確認済み——ペアワイズ損失がregime変化と整合しない
-                        # 可能性の検証用。REGIME_FILTERとは独立(全レジーム学習のままペアだけ
-                        # regime内に絞れる)。
+                        # near-day(|tidx差|<=MAX_PAIR_GAP)ペアの42.7%(MAX_PAIR_GAP=20時点)・
+                        # 42.4%(MAX_PAIR_GAP=5時点、再測定済み)がregimeを跨いでいる——ペア構成比
+                        # 自体はgap短縮後も変わっていない。ただし性能への影響はgap=20/hp=10時代
+                        # (True採用、std 3.6x改善)からgap=5/hp=5/seq_len=5/d1_open採用後で逆転
+                        # ——5seed再検証でFalse優位(mean 1.525>1.386、ensemble 1.508>1.464、
+                        # stdはほぼ同じ0.147≈0.143)を確認し、2026-09-19にFalseへ採用変更。
+                        # gap/hp/seq_lenを全部短縮したことで比較対象ペア自体が元々近い市場環境
+                        # 同士になり、regime制約が削るノイズより、ペア数減少による学習信号減少の
+                        # 方が相対的に効くようになったと考えられる。REGIME_FILTERとは独立
+                        # (全レジーム学習のままペアだけregime内に絞れる、この設定とは無関係)。
 MACRO_CLIP = None       # Noneなら未使用。数値(例: 3.0)を入れるとmacro特徴量をその範囲に
                         # clipする(2026-09-19追加)。pin_dist_ratio/wall_spread/cta_momentum/
                         # nk_ret_normは固定の割り算定数で正規化されておりHIGHレジームに
@@ -363,12 +378,13 @@ if not TEST_STOCK_COLS or not TEST_MACRO_COLS:
     )
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-SEQ_LEN, HOLDING_PERIOD = 10, 5  # HOLDING_PERIOD: 本番既定10から5へ変更(2026-09-19採用、
-                        # ユーザー提案で3seed×3値(10/7/5)を比較した結果、短くするほどPF・
-                        # seed間の安定性ともに改善したため —— hp=5: mean=1.482/std=0.089/
-                        # ensemble=1.472、hp=10(本番既定): mean=1.445/std=0.291/
-                        # ensemble=1.244。本番training/train_model_v8_exp.pyのHOLDING_PERIOD
-                        # 相当の値は意図的に変更していない(研究ハーネスのみ)。
+SEQ_LEN, HOLDING_PERIOD = 5, 5  # 両方とも本番既定10から5へ変更(2026-09-19採用、ユーザー提案で
+                        # 3seed×3値(10/7/5)を比較した結果、両方とも短くするほどPF・seed間の
+                        # 安定性ともに改善したため —— HOLDING_PERIOD: hp=5 mean=1.482/std=0.089/
+                        # ensemble=1.472 vs hp=10(本番既定) mean=1.445/std=0.291/ensemble=1.244。
+                        # SEQ_LEN: sl=5 mean=1.526/std=0.038/ensemble=1.528 vs sl=10(本番既定)
+                        # mean=1.482/std=0.089/ensemble=1.472。本番training/train_model_v8_exp.py
+                        # 側の値は意図的に変更していない(研究ハーネスのみ)。
 
 
 def set_seed(seed):
@@ -735,6 +751,32 @@ def prepare_backtest_pool(macro_cols, stock_cols, pool, margin_pool, sector_pool
     return pool_out
 
 
+def build_model(s_cols, m_cols):
+    """MODEL_ARCH等の現在のトグル値からモデルを構築する(2026-09-19、train_model()から
+    切り出し。parallel_seed_sweep.pyの親プロセス側でも学習済みstate_dictを読み込む前に
+    同じ構造のモデルを再構築するために使う——モデル構築ロジックを2箇所に重複させない)。"""
+    arch_cls = ARCH_CLASSES[MODEL_ARCH]
+    if MODEL_ARCH == "gru_macro_mlp_cross":
+        # 株64/マクロ32(縮小してSTOCK_HIDDEN_DIM=32/MACRO_HIDDEN_DIM=16)という非対称次元
+        # 構成のため、他アーキテクチャ共通のMODEL_HIDDEN_DIMではなく専用toggleを使う
+        # (2026-09-19追加、ユーザー提案「Technical GRU(64)+Macro MLP(32)+Cross Attention」)。
+        model_kwargs = dict(stock_dim=len(s_cols), macro_dim=len(m_cols),
+                             stock_hidden=STOCK_HIDDEN_DIM, macro_hidden=MACRO_HIDDEN_DIM,
+                             num_heads=CROSS_ATTN_NUM_HEADS, num_classes=3, dropout=0.2,
+                             use_cross_ffn=CROSS_ATTN_USE_FFN, seq_len=SEQ_LEN)
+    else:
+        model_kwargs = dict(stock_dim=len(s_cols), macro_dim=len(m_cols), hidden_dim=MODEL_HIDDEN_DIM,
+                             num_heads=MODEL_NUM_HEADS, num_classes=3, dropout=0.2, seq_len=SEQ_LEN)
+        if MODEL_ARCH == "dual_stream":
+            model_kwargs['use_cross_ffn'] = USE_CROSS_FFN
+            model_kwargs['use_final_norm'] = USE_FINAL_NORM
+        # gru_only/transformer_onlyにはuse_cross_ffn/use_final_norm概念が無いので渡さない
+        # (**kwargsを持つので万一渡しても無視されるが、意図を明確にするため分岐している)
+        if MODEL_ARCH in ("dual_stream", "transformer_only"):
+            model_kwargs['num_self_attn_layers'] = NUM_SELF_ATTN_LAYERS
+    return arch_cls(**model_kwargs).to(DEVICE)
+
+
 def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call=False):
     tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx, tr_regime = tr_data
     va_x_s, va_x_m, va_y, va_tid, va_tidx, va_regime = va_data
@@ -761,26 +803,7 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
     train_sampler = SameTickerBatchSampler(tr_tid, TRAIN_BATCH_SIZE, shuffle=True)
     val_batches = list(SameTickerBatchSampler(va_tid, VAL_BATCH_SIZE, shuffle=False))
 
-    arch_cls = ARCH_CLASSES[MODEL_ARCH]
-    if MODEL_ARCH == "gru_macro_mlp_cross":
-        # 株64/マクロ32(縮小してSTOCK_HIDDEN_DIM=32/MACRO_HIDDEN_DIM=16)という非対称次元
-        # 構成のため、他アーキテクチャ共通のMODEL_HIDDEN_DIMではなく専用toggleを使う
-        # (2026-09-19追加、ユーザー提案「Technical GRU(64)+Macro MLP(32)+Cross Attention」)。
-        model_kwargs = dict(stock_dim=len(s_cols), macro_dim=len(m_cols),
-                             stock_hidden=STOCK_HIDDEN_DIM, macro_hidden=MACRO_HIDDEN_DIM,
-                             num_heads=CROSS_ATTN_NUM_HEADS, num_classes=3, dropout=0.2,
-                             use_cross_ffn=CROSS_ATTN_USE_FFN, seq_len=SEQ_LEN)
-    else:
-        model_kwargs = dict(stock_dim=len(s_cols), macro_dim=len(m_cols), hidden_dim=MODEL_HIDDEN_DIM,
-                             num_heads=MODEL_NUM_HEADS, num_classes=3, dropout=0.2, seq_len=SEQ_LEN)
-        if MODEL_ARCH == "dual_stream":
-            model_kwargs['use_cross_ffn'] = USE_CROSS_FFN
-            model_kwargs['use_final_norm'] = USE_FINAL_NORM
-        # gru_only/transformer_onlyにはuse_cross_ffn/use_final_norm概念が無いので渡さない
-        # (**kwargsを持つので万一渡しても無視されるが、意図を明確にするため分岐している)
-        if MODEL_ARCH in ("dual_stream", "transformer_only"):
-            model_kwargs['num_self_attn_layers'] = NUM_SELF_ATTN_LAYERS
-    model = arch_cls(**model_kwargs).to(DEVICE)
+    model = build_model(s_cols, m_cols)
     # 2026-09-19: pair数加重・ゼロペアバッチ除外のため、regime制約の有無に関わらず常に
     # NearPairRankingLossRegimeAware(regime=Noneなら本番NearPairRankingLossと同一)を使う。
     criterion = NearPairRankingLossRegimeAware(max_gap=MAX_PAIR_GAP)
@@ -856,7 +879,7 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
             prof.__exit__(None, None, None)
             sort_key = "self_cuda_time_total" if torch.cuda.is_available() else "self_cpu_time_total"
             log(f"[Profiler] [{label}] epoch1 学習ループ({n_tr_batches}バッチ)処理時間トップ10:")
-            print(prof.key_averages().table(sort_by=sort_key, row_limit=10))
+            print(prof.key_averages().table(sort_by=sort_key, row_limit=15))
 
         model.eval()
         # .item()は毎回GPU-CPU同期を発生させるので、バッチごとには呼ばずテンソルのまま
@@ -973,9 +996,19 @@ if __name__ == "__main__":
     print(f"[*] テスト側 株{len(TEST_STOCK_COLS)}個 + マクロ{len(TEST_MACRO_COLS)}個 = 計{len(TEST_FEATS)}個")
     print(f"    既存から外した: {sorted(removed_from_baseline) if removed_from_baseline else '(なし)'}")
     print(f"    新規追加した候補: {sorted(added_candidates) if added_candidates else '(なし)'}")
-    print(f"[*] モデル設定: arch={MODEL_ARCH}, hidden_dim={MODEL_HIDDEN_DIM}, num_heads={MODEL_NUM_HEADS}, "
-          f"use_cross_ffn={USE_CROSS_FFN}, use_final_norm={USE_FINAL_NORM}, "
-          f"num_self_attn_layers={NUM_SELF_ATTN_LAYERS}, train_batch_size={TRAIN_BATCH_SIZE}, seeds={SEEDS}\n")
+    # 2026-09-19修正: MODEL_ARCHに関わらず常にdual_stream用トグル(MODEL_HIDDEN_DIM等)を
+    # 表示しており、gru_macro_mlp_cross使用時は実際に使われるSTOCK_HIDDEN_DIM等ではなく
+    # 無関係な値を表示していた(ユーザー指摘で発覚。本体スクリプトのMODEL_ARCHが
+    # gru_macro_mlp_crossのまま戻し忘れていたことに気づけなかった一因)。archごとに
+    # 実際に使われるパラメータだけを表示する。
+    if MODEL_ARCH == "gru_macro_mlp_cross":
+        print(f"[*] モデル設定: arch={MODEL_ARCH}, stock_hidden={STOCK_HIDDEN_DIM}, macro_hidden={MACRO_HIDDEN_DIM}, "
+              f"num_heads={CROSS_ATTN_NUM_HEADS}, use_cross_ffn={CROSS_ATTN_USE_FFN}, "
+              f"train_batch_size={TRAIN_BATCH_SIZE}, seeds={SEEDS}\n")
+    else:
+        print(f"[*] モデル設定: arch={MODEL_ARCH}, hidden_dim={MODEL_HIDDEN_DIM}, num_heads={MODEL_NUM_HEADS}, "
+              f"use_cross_ffn={USE_CROSS_FFN}, use_final_norm={USE_FINAL_NORM}, "
+              f"num_self_attn_layers={NUM_SELF_ATTN_LAYERS}, train_batch_size={TRAIN_BATCH_SIZE}, seeds={SEEDS}\n")
 
     with open(UNIVERSE_PATH, "r", encoding="utf-8") as f:
         tickers = [line.strip() for line in f if line.strip()]
@@ -1036,22 +1069,83 @@ if __name__ == "__main__":
 
     results_base, results_test = [], []
     models_base, models_test = [], []
-    for si, seed in enumerate(SEEDS):
-        log(f"=== seed={seed} ===")
-        model_base = train_model(seed, tr0, va0, BASELINE_STOCK_COLS, BASELINE_MACRO_COLS, "ベースライン(既存14固定)",
-                                  profile_this_call=(PROFILE_FIRST_EPOCH and si == 0))
-        d_base = run_backtest_inference(model_base, pool_base)
-        model_test = train_model(seed, tr1, va1, TEST_STOCK_COLS, TEST_MACRO_COLS, f"テスト構成({len(TEST_FEATS)}個)")
-        d_test = run_backtest_inference(model_test, pool_test)
+    if PROFILE_FIRST_EPOCH:
+        # プロファイリングは並列学習と相性が悪い(複数プロセスの出力が混ざる)ため、
+        # PROFILE_FIRST_EPOCH=Trueのときだけ元の逐次ループにフォールバックする
+        # (2026-09-19、並列化はこの診断機能の対象外)。
+        for si, seed in enumerate(SEEDS):
+            log(f"=== seed={seed} ===")
+            model_base = train_model(seed, tr0, va0, BASELINE_STOCK_COLS, BASELINE_MACRO_COLS, "ベースライン(既存14固定)",
+                                      profile_this_call=(si == 0))
+            d_base = run_backtest_inference(model_base, pool_base)
+            model_test = train_model(seed, tr1, va1, TEST_STOCK_COLS, TEST_MACRO_COLS, f"テスト構成({len(TEST_FEATS)}個)")
+            d_test = run_backtest_inference(model_test, pool_test)
 
-        r_base = evaluate(d_base, f"seed={seed} ベースライン score Top-K", min_reliable_n=MIN_RELIABLE_N,
-                           common_sample_k=COMMON_SAMPLE_K, max_concurrent=MAX_CONCURRENT_POSITIONS)
-        r_test = evaluate(d_test, f"seed={seed} テスト構成 score Top-K", min_reliable_n=MIN_RELIABLE_N,
-                           common_sample_k=COMMON_SAMPLE_K, max_concurrent=MAX_CONCURRENT_POSITIONS)
-        r_base['seed'] = seed; r_test['seed'] = seed
-        results_base.append(r_base); results_test.append(r_test)
-        models_base.append(model_base); models_test.append(model_test)
-        print()
+            r_base = evaluate(d_base, f"seed={seed} ベースライン score Top-K", min_reliable_n=MIN_RELIABLE_N,
+                               common_sample_k=COMMON_SAMPLE_K, max_concurrent=MAX_CONCURRENT_POSITIONS)
+            r_test = evaluate(d_test, f"seed={seed} テスト構成 score Top-K", min_reliable_n=MIN_RELIABLE_N,
+                               common_sample_k=COMMON_SAMPLE_K, max_concurrent=MAX_CONCURRENT_POSITIONS)
+            r_base['seed'] = seed; r_test['seed'] = seed
+            results_base.append(r_base); results_test.append(r_test)
+            models_base.append(model_base); models_test.append(model_test)
+            print()
+    else:
+        # base×seeds + test×seeds = 2*len(SEEDS)個の独立した学習ジョブを、1つのフラットな
+        # jobリストとして並列学習する(2026-09-19、ユーザー提案「本体スクリプトのbaseline vs
+        # テスト構成比較も並列化したい」)。parallel_seed_sweep.pyで検証済みの方式
+        # (3seed 2.44x、5seed 2.9x、逐次/並列で結果が完全一致することを確認済み、
+        # [[feedback_nn_training_performance]]参照)を、base/test2構成に一般化して使う。
+        import tempfile, pickle as _pickle, torch as _torch
+        import parallel_seed_sweep as _pss
+
+        _tmpdir = tempfile.mkdtemp(prefix="stage3_main_parallel_")
+        _shared_data_path = os.path.join(_tmpdir, "shared_data.pkl")
+        with open(_shared_data_path, "wb") as f:
+            _pickle.dump({
+                "tr_base": tr0, "va_base": va0, "s_cols_base": BASELINE_STOCK_COLS, "m_cols_base": BASELINE_MACRO_COLS,
+                "tr_test": tr1, "va_test": va1, "s_cols_test": TEST_STOCK_COLS, "m_cols_test": TEST_MACRO_COLS,
+            }, f)
+
+        _jobs = []
+        _out_paths = {}
+        for seed in SEEDS:
+            for label in ("base", "test"):
+                out_path = os.path.join(_tmpdir, f"state_{label}_{seed}.pt")
+                _jobs.append((label, seed, _shared_data_path, out_path))
+                _out_paths[(label, seed)] = out_path
+
+        log(f"[*] base×{len(SEEDS)}seed + test×{len(SEEDS)}seed = {len(_jobs)}ジョブを並列学習します"
+            f"(最大{PARALLEL_MAX_CONCURRENT}並列)...")
+        _t0 = time.time()
+        _pss.run_jobs_parallel(_jobs, os.path.abspath(_pss.__file__), PARALLEL_MAX_CONCURRENT)
+        log(f"[+] 全{len(_jobs)}ジョブ学習完了: 実時間={time.time()-_t0:.1f}秒")
+
+        for seed in SEEDS:
+            log(f"=== seed={seed}(推論・評価) ===")
+            model_base = build_model(BASELINE_STOCK_COLS, BASELINE_MACRO_COLS)
+            model_base.load_state_dict(_torch.load(_out_paths[("base", seed)], map_location=DEVICE))
+            model_base.eval()
+            d_base = run_backtest_inference(model_base, pool_base)
+
+            model_test = build_model(TEST_STOCK_COLS, TEST_MACRO_COLS)
+            model_test.load_state_dict(_torch.load(_out_paths[("test", seed)], map_location=DEVICE))
+            model_test.eval()
+            d_test = run_backtest_inference(model_test, pool_test)
+
+            r_base = evaluate(d_base, f"seed={seed} ベースライン score Top-K", min_reliable_n=MIN_RELIABLE_N,
+                               common_sample_k=COMMON_SAMPLE_K, max_concurrent=MAX_CONCURRENT_POSITIONS)
+            r_test = evaluate(d_test, f"seed={seed} テスト構成 score Top-K", min_reliable_n=MIN_RELIABLE_N,
+                               common_sample_k=COMMON_SAMPLE_K, max_concurrent=MAX_CONCURRENT_POSITIONS)
+            r_base['seed'] = seed; r_test['seed'] = seed
+            results_base.append(r_base); results_test.append(r_test)
+            models_base.append(model_base); models_test.append(model_test)
+            print()
+
+        try:
+            import shutil
+            shutil.rmtree(_tmpdir)
+        except Exception:
+            pass
 
     # アンサンブル評価(2026-09-19追加): 単一seedはSTRONG BUYが特定regimeに偏る不安定性が
     # あること(ユーザー提案で実測確認済み)を受けて、本番と同じsoftmax確率平均アンサンブル
