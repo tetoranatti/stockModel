@@ -77,13 +77,24 @@ class PreLN_CrossAttentionBlock(nn.Module):
 
 class DualStream_GRU_PreLN_Transformer(nn.Module):
     def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2,
-                 use_cross_ffn=False, use_final_norm=False):
+                 use_cross_ffn=False, use_final_norm=False, num_self_attn_layers=1):
         super().__init__()
         self.stock_gru = nn.GRU(stock_dim, hidden_dim, batch_first=True, num_layers=1)
         self.macro_gru = nn.GRU(macro_dim, hidden_dim, batch_first=True, num_layers=1)
 
         self.stock_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
         self.macro_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+        # 1層目(stock_encoder/macro_encoder)は既存名のまま維持し、既存チェックポイントとの
+        # 互換性を保つ。2層目以降だけ別のModuleListに積む(2026-09-19追加、
+        # num_self_attn_layers=1なら空リスト=パラメータ0個で、既存state_dictと完全一致する)。
+        self.stock_encoder_extra = nn.ModuleList([
+            PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+            for _ in range(max(0, num_self_attn_layers - 1))
+        ])
+        self.macro_encoder_extra = nn.ModuleList([
+            PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+            for _ in range(max(0, num_self_attn_layers - 1))
+        ])
 
         self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout,
                                                       use_ffn=use_cross_ffn)
@@ -108,7 +119,11 @@ class DualStream_GRU_PreLN_Transformer(nn.Module):
         h_m, _ = self.macro_gru(x_macro)
 
         feat_s = self.stock_encoder(h_s)
+        for layer in self.stock_encoder_extra:
+            feat_s = layer(feat_s)
         feat_m = self.macro_encoder(h_m)
+        for layer in self.macro_encoder_extra:
+            feat_m = layer(feat_m)
 
         fused = self.cross_attn(feat_s, feat_m)
         if self.use_final_norm:
@@ -163,7 +178,8 @@ class SinusoidalPositionalEncoding(nn.Module):
 class TransformerOnlyModel(nn.Module):
     """Transformer単体案: GRUを撤去し、代わりに線形射影+正弦波Positional Encodingで
     時系列位置情報を与えた上でSelfAttention/CrossAttentionに通す。"""
-    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2, **kwargs):
+    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2,
+                 num_self_attn_layers=1, **kwargs):
         super().__init__()
         self.stock_proj = nn.Linear(stock_dim, hidden_dim)
         self.macro_proj = nn.Linear(macro_dim, hidden_dim)
@@ -171,6 +187,16 @@ class TransformerOnlyModel(nn.Module):
 
         self.stock_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
         self.macro_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+        # DualStream_GRU_PreLN_Transformerと同じパターン(2026-09-19追加): 1層目は既存名のまま、
+        # 2層目以降だけ別のModuleListに積む(num_self_attn_layers=1なら空リストで既定挙動と同じ)。
+        self.stock_encoder_extra = nn.ModuleList([
+            PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+            for _ in range(max(0, num_self_attn_layers - 1))
+        ])
+        self.macro_encoder_extra = nn.ModuleList([
+            PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
+            for _ in range(max(0, num_self_attn_layers - 1))
+        ])
         self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout)
         self.pool = DecayPooling(seq_len=10)
 
@@ -186,7 +212,11 @@ class TransformerOnlyModel(nn.Module):
         h_m = self.pos_enc(self.macro_proj(x_macro))
 
         feat_s = self.stock_encoder(h_s)
+        for layer in self.stock_encoder_extra:
+            feat_s = layer(feat_s)
         feat_m = self.macro_encoder(h_m)
+        for layer in self.macro_encoder_extra:
+            feat_m = layer(feat_m)
 
         fused = self.cross_attn(feat_s, feat_m)
         pooled = self.pool(fused)
