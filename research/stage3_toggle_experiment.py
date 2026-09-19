@@ -96,42 +96,42 @@ BASE_MACRO_COLS = ['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentu
 # ============================================================================
 FEATURE_TOGGLES = {
     # --- 既存9(株側、本番) ---
-    'stock_ret_1d': True, 'stock_ret_5d': True, 'stock_ret_20d': True,
-    'atr_ratio': True, 'rolling_beta': True, 'vol_ratio_5d': True,
-    'overnight_gap': True, 'dist_from_high20': True, 'dist_from_low20': True,
+    'stock_ret_1d': False, 'stock_ret_5d': True, 'stock_ret_20d': True,
+    'atr_ratio': False, 'rolling_beta': False, 'vol_ratio_5d': False,
+    'overnight_gap': False, 'dist_from_high20': False, 'dist_from_low20': False,
     # --- 既存5(マクロ側、本番) ---
-    'pin_dist_ratio': True, 'wall_spread': True, 'cta_net_norm': True, 'cta_momentum': True, 'nk_ret_norm': True,
+    'pin_dist_ratio': False, 'wall_spread': False, 'cta_net_norm': False, 'cta_momentum': True, 'nk_ret_norm': True,
 
     # --- 株側候補(6項目スクリーニングIC通過) ---
-    'rs60': False,
-    'gap_strength_5': False,
-    'atr_accel': False,
+    'rs60': True,
+    'gap_strength_5': True,
+    'atr_accel': True,
     # --- 株側候補(不合格、参考用) ---
     'atr_term_ratio': False,
     'dist_from_high60': False,
     'gap_avg_5d': False,
-    'relative_strength_5d': False,
+    'relative_strength_5d': True,
     'rs20': False,
     'momentum_accel': False,
     'volume_zscore': False,
-    'volume_accel': False,
+    'volume_accel': True,
     'volume_ma_ratio': False,
     'close_location_value': False,
     'body_ratio': False,
-    'adx14': False,
+    'adx14': True,
     'efficiency_ratio20': False,
     'days_since_high20': False,
-    'new_high20': False,
+    'new_high20': True,
     'positive_gap_ratio_5': False,
     'gap_follow_through': False,
     # --- マクロ候補(usdjpy_chgのみIC通過) ---
-    'usdjpy_chg': False,
+    'usdjpy_chg': True,
     'market_vol_regime': False,
     'vix_overnight_chg': False,
     'nk225_ret_5d': False,
     'topix_ret_5d': False,
     # --- マージン残高候補(margin_ratio_levelのみIC通過) ---
-    'margin_ratio_level': True,
+    'margin_ratio_level': False,
     'margin_ratio_zscore_12w': False,
     'margin_buy_chg_1w': False,
     'margin_short_chg_1w': False,
@@ -614,6 +614,39 @@ def compute_common_sample_pf(d_all, k=COMMON_SAMPLE_K):
     return pf_of(top_k), len(top_k)
 
 
+def compute_regime_labels(macro_pool_df):
+    """market_vol_regime(市場実現ボラの60日z-score、キャッシュ済み)の全期間3分位で
+    date->'LOW'/'MID'/'HIGH'のマッピングを作る(2026-09-19追加、ユーザー提案の
+    レジーム別評価用)。診断目的の事後集計であり、本番のregime_risk_model
+    (modules/regime_risk_model.py::_compute_vol_regime_is_low)が使う拡大窓版とは異なり、
+    全期間固定の分位点を使う(未来情報を使うため学習特徴量には使えないが、過去の
+    バックテスト結果をレジーム別に見るだけの集計には問題ない)。"""
+    vol = macro_pool_df['market_vol_regime']
+    q1, q2 = vol.quantile([1 / 3, 2 / 3])
+    labels = pd.Series('MID', index=macro_pool_df.index)
+    labels[vol < q1] = 'LOW'
+    labels[vol >= q2] = 'HIGH'
+    return labels
+
+
+def regime_breakdown(sub, label, regime_labels):
+    """monthly_breakdownと同じ形式で、月の代わりにボラティリティregime(LOW/MID/HIGH)
+    別にn・勝率・PFを出す。少数サンプルのバケットはmonthly_breakdownと同じ閾値
+    (MIN_RELIABLE_N)で警告する。"""
+    sub = sub.copy()
+    sub['regime'] = pd.to_datetime(sub['date']).map(regime_labels)
+    print(f"\n  [regime別内訳: {label}]")
+    for regime in ['LOW', 'MID', 'HIGH']:
+        g = sub[sub['regime'] == regime]
+        if len(g) == 0:
+            print(f"    {regime}: n=0")
+            continue
+        win_rate = len(g[g['ret_pct'] > 0]) / len(g) * 100
+        pf = pf_of(g)
+        flag = f" [!少数トレード(<{MIN_RELIABLE_N}件)]" if len(g) < MIN_RELIABLE_N else ""
+        print(f"    {regime}: n={len(g):4d} win_rate={win_rate:5.1f}% PF={pf:5.2f}{flag}")
+
+
 def monthly_breakdown(sub, label):
     sub = sub.copy()
     sub['month'] = pd.to_datetime(sub['date']).dt.to_period('M')
@@ -698,7 +731,10 @@ if __name__ == "__main__":
     log(f"[+] train0={len(tr0[2])} val0={len(va0[2])} / train1={len(tr1[2])} val1={len(va1[2])}")
     log(f"[+] backtest_pool base={len(pool_base)} test={len(pool_test)}")
 
+    regime_labels = compute_regime_labels(macro_pool_df)
+
     results_base, results_test = [], []
+    all_d_base, all_d_test = [], []
     for si, seed in enumerate(SEEDS):
         log(f"=== seed={seed} ===")
         model_base = train_model(seed, tr0, va0, BASELINE_STOCK_COLS, BASELINE_MACRO_COLS, "ベースライン(既存14固定)",
@@ -711,7 +747,22 @@ if __name__ == "__main__":
         r_test = evaluate(d_test, f"seed={seed} テスト構成 STRONG BUY")
         r_base['seed'] = seed; r_test['seed'] = seed
         results_base.append(r_base); results_test.append(r_test)
+        all_d_base.append(d_base); all_d_test.append(d_test)
         print()
+
+    # regime別内訳は1seedだけだとn が小さすぎるため(1ヶ月分がn=10程度)、全seedをpoolして
+    # 見る(2026-09-19追加、ユーザー提案「レジーム別評価によっては有効なボラティリティ
+    # 場面がある可能性」の検証用)。
+    d_base_all = pd.concat(all_d_base, ignore_index=True)
+    d_test_all = pd.concat(all_d_test, ignore_index=True)
+    sub_base_all = d_base_all[(d_base_all['p_win'] >= 0.700) & (d_base_all['p_win'] > d_base_all['p_stop'])]
+    sub_test_all = d_test_all[(d_test_all['p_win'] >= 0.700) & (d_test_all['p_win'] > d_test_all['p_stop'])]
+    print("=" * 90)
+    print(f"【regime別内訳(全{len(SEEDS)}seed pool、LOW/MID/HIGHは市場実現ボラの全期間3分位)】")
+    print("=" * 90)
+    regime_breakdown(sub_base_all, "ベースライン(全seed pool) STRONG BUY", regime_labels)
+    regime_breakdown(sub_test_all, "テスト構成(全seed pool) STRONG BUY", regime_labels)
+    print()
 
     df_base = pd.DataFrame(results_base)
     df_test = pd.DataFrame(results_test)
