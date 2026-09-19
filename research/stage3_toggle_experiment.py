@@ -769,10 +769,10 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
         model_kwargs = dict(stock_dim=len(s_cols), macro_dim=len(m_cols),
                              stock_hidden=STOCK_HIDDEN_DIM, macro_hidden=MACRO_HIDDEN_DIM,
                              num_heads=CROSS_ATTN_NUM_HEADS, num_classes=3, dropout=0.2,
-                             use_cross_ffn=CROSS_ATTN_USE_FFN)
+                             use_cross_ffn=CROSS_ATTN_USE_FFN, seq_len=SEQ_LEN)
     else:
         model_kwargs = dict(stock_dim=len(s_cols), macro_dim=len(m_cols), hidden_dim=MODEL_HIDDEN_DIM,
-                             num_heads=MODEL_NUM_HEADS, num_classes=3, dropout=0.2)
+                             num_heads=MODEL_NUM_HEADS, num_classes=3, dropout=0.2, seq_len=SEQ_LEN)
         if MODEL_ARCH == "dual_stream":
             model_kwargs['use_cross_ffn'] = USE_CROSS_FFN
             model_kwargs['use_final_norm'] = USE_FINAL_NORM

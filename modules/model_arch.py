@@ -83,7 +83,7 @@ class PreLN_CrossAttentionBlock(nn.Module):
 
 class DualStream_GRU_PreLN_Transformer(nn.Module):
     def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2,
-                 use_cross_ffn=False, use_final_norm=False, num_self_attn_layers=1):
+                 use_cross_ffn=False, use_final_norm=False, num_self_attn_layers=1, seq_len=10):
         super().__init__()
         self.stock_gru = nn.GRU(stock_dim, hidden_dim, batch_first=True, num_layers=1)
         self.macro_gru = nn.GRU(macro_dim, hidden_dim, batch_first=True, num_layers=1)
@@ -104,7 +104,7 @@ class DualStream_GRU_PreLN_Transformer(nn.Module):
 
         self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout,
                                                       use_ffn=use_cross_ffn)
-        self.pool = DecayPooling(seq_len=10)
+        self.pool = DecayPooling(seq_len=seq_len)
 
         # Pre-LN構造は各サブレイヤーの入力側しか正規化しないため、残差ストリームの出力スケールが
         # 際限なく成長し得る。use_final_norm=Trueでpooling直前に最終LayerNormを挟める
@@ -148,11 +148,11 @@ class DualStream_GRU_PreLN_Transformer(nn.Module):
 class GRUOnlyModel(nn.Module):
     """GRU単体案: SelfAttention/CrossAttentionを撤去し、2本のGRUの出力を
     DecayPoolingで集約後、単純結合(concat)して分類する。"""
-    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_classes=3, dropout=0.2, **kwargs):
+    def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_classes=3, dropout=0.2, seq_len=10, **kwargs):
         super().__init__()
         self.stock_gru = nn.GRU(stock_dim, hidden_dim, batch_first=True, num_layers=1)
         self.macro_gru = nn.GRU(macro_dim, hidden_dim, batch_first=True, num_layers=1)
-        self.pool = DecayPooling(seq_len=10)
+        self.pool = DecayPooling(seq_len=seq_len)
         self.classifier = nn.Sequential(
             nn.Linear(hidden_dim * 2, 16),
             nn.ReLU(),
@@ -185,11 +185,11 @@ class TransformerOnlyModel(nn.Module):
     """Transformer単体案: GRUを撤去し、代わりに線形射影+正弦波Positional Encodingで
     時系列位置情報を与えた上でSelfAttention/CrossAttentionに通す。"""
     def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2,
-                 num_self_attn_layers=1, **kwargs):
+                 num_self_attn_layers=1, seq_len=10, **kwargs):
         super().__init__()
         self.stock_proj = nn.Linear(stock_dim, hidden_dim)
         self.macro_proj = nn.Linear(macro_dim, hidden_dim)
-        self.pos_enc = SinusoidalPositionalEncoding(hidden_dim, seq_len=10)
+        self.pos_enc = SinusoidalPositionalEncoding(hidden_dim, seq_len=seq_len)
 
         self.stock_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
         self.macro_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
@@ -204,7 +204,7 @@ class TransformerOnlyModel(nn.Module):
             for _ in range(max(0, num_self_attn_layers - 1))
         ])
         self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout)
-        self.pool = DecayPooling(seq_len=10)
+        self.pool = DecayPooling(seq_len=seq_len)
 
         self.classifier = nn.Sequential(
             nn.Linear(hidden_dim, 16),
@@ -238,7 +238,7 @@ class GRU_MacroMLP_CrossAttn_Model(nn.Module):
     独立に(全時点で重み共有の)MLPで変換するだけ——マクロ変数自体の日次値の意味は
     時点をまたいで比較する必要が薄いという仮説に基づく。"""
     def __init__(self, stock_dim=5, macro_dim=5, stock_hidden=32, macro_hidden=16, num_heads=4,
-                 num_classes=3, dropout=0.2, use_cross_ffn=False, **kwargs):
+                 num_classes=3, dropout=0.2, use_cross_ffn=False, seq_len=10, **kwargs):
         super().__init__()
         self.stock_gru = nn.GRU(stock_dim, stock_hidden, batch_first=True, num_layers=1)
         self.macro_mlp = nn.Sequential(
@@ -252,7 +252,7 @@ class GRU_MacroMLP_CrossAttn_Model(nn.Module):
         self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=stock_hidden, num_heads=num_heads,
                                                       dropout=dropout, kv_dim=macro_hidden,
                                                       use_ffn=use_cross_ffn)
-        self.pool = DecayPooling(seq_len=10)
+        self.pool = DecayPooling(seq_len=seq_len)
         self.classifier = nn.Sequential(
             nn.Linear(stock_hidden, 16),
             nn.ReLU(),
