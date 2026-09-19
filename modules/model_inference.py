@@ -13,6 +13,9 @@ def load_trained_model(weights_path):
     hidden_dim = checkpoint.get('hidden_dim', 20)
     num_heads = checkpoint.get('num_heads', 1)
     dropout = checkpoint.get('dropout', 0.2)
+    # use_cross_ffn=Falseが既定なので、この鍵を持たない旧チェックポイントも
+    # そのまま正しく再構築できる(2026-09-19、FFN本採用に伴い追加)。
+    use_cross_ffn = checkpoint.get('use_cross_ffn', False)
 
     model = DualStream_GRU_PreLN_Transformer(
         stock_dim=len(stock_cols),
@@ -20,7 +23,8 @@ def load_trained_model(weights_path):
         hidden_dim=hidden_dim,
         num_heads=num_heads,
         num_classes=3,
-        dropout=dropout
+        dropout=dropout,
+        use_cross_ffn=use_cross_ffn
     ).to(DEVICE)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()

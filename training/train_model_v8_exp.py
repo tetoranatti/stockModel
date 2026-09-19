@@ -330,7 +330,12 @@ def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx,
 
     model = DualStream_GRU_PreLN_Transformer(
         stock_dim=len(s_cols), macro_dim=len(m_cols),
-        hidden_dim=HIDDEN_DIM, num_heads=1, num_classes=3, dropout=0.2
+        hidden_dim=HIDDEN_DIM, num_heads=1, num_classes=3, dropout=0.2,
+        use_cross_ffn=True
+        # Cross-Attention後にFFNサブレイヤーを追加(2026-09-19本採用)。
+        # stage3_toggle_experiment.pyでの検証(regime-aware loss・5シード・
+        # global_split_date修正後): 既定 PF mean=1.503 -> FFNのみ PF mean=1.746(+0.244)。
+        # FinalNormは単体では効果が無く(むしろ不安定化)不採用。
     ).to(DEVICE)
 
     criterion = NearPairRankingLoss(max_gap=MAX_PAIR_GAP)
@@ -379,6 +384,7 @@ def train_one_seed(seed, tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx,
                 'hidden_dim': HIDDEN_DIM,
                 'num_heads': 1,
                 'dropout': 0.2,
+                'use_cross_ffn': True,
                 'val_loss': best_val_loss,
                 'seed': seed,
             }, save_path)

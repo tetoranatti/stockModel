@@ -43,11 +43,17 @@ class PreLN_SelfAttentionBlock(nn.Module):
         return x
 
 class PreLN_CrossAttentionBlock(nn.Module):
-    def __init__(self, hidden_dim=20, num_heads=1, dropout=0.2, use_ffn=False, dim_ff=32):
+    def __init__(self, hidden_dim=20, num_heads=1, dropout=0.2, use_ffn=False, dim_ff=32, kv_dim=None):
         super().__init__()
+        # kv_dim: query側(hidden_dim)とkey/value側で次元が異なる場合に指定する(2026-09-19追加、
+        # 株GRU(64)+マクロMLP(32)のような非対称次元構成の実験用)。Noneなら従来通り
+        # hidden_dimと同じ(nn.MultiheadAttentionはkdim=vdim=embed_dimのとき単一in_proj_weightの
+        # 高速パスを使うため、既存呼び出し元のパラメータ構造・チェックポイント互換性に影響しない)。
+        kv_dim = kv_dim if kv_dim is not None else hidden_dim
         self.norm_q = nn.LayerNorm(hidden_dim)
-        self.norm_kv = nn.LayerNorm(hidden_dim)
-        self.mha = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
+        self.norm_kv = nn.LayerNorm(kv_dim)
+        self.mha = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, dropout=dropout,
+                                          batch_first=True, kdim=kv_dim, vdim=kv_dim)
         self.dropout = nn.Dropout(dropout)
 
         # self-attention側(PreLN_SelfAttentionBlock)と違い、元々はattention+残差のみで
@@ -219,5 +225,44 @@ class TransformerOnlyModel(nn.Module):
             feat_m = layer(feat_m)
 
         fused = self.cross_attn(feat_s, feat_m)
+        pooled = self.pool(fused)
+        return self.classifier(pooled)
+
+
+class GRU_MacroMLP_CrossAttn_Model(nn.Module):
+    """株側GRU+マクロ側MLP(系列非依存、各日を独立変換)+Cross-Attention+MLP Headという案
+    (2026-09-19追加、ユーザー提案)。GRUOnlyModelの反省(株・マクロを同じhidden_dimで
+    扱っていた)を受け、株側とマクロ側で次元を分ける(既定32/16)。自己注意層は無く、
+    Cross-Attentionのみで株シーケンスにマクロ情報を注入する構造。
+    マクロ側はSelf-Attention/GRUのような時系列内の相互作用を仮定せず、各日の値を
+    独立に(全時点で重み共有の)MLPで変換するだけ——マクロ変数自体の日次値の意味は
+    時点をまたいで比較する必要が薄いという仮説に基づく。"""
+    def __init__(self, stock_dim=5, macro_dim=5, stock_hidden=32, macro_hidden=16, num_heads=4,
+                 num_classes=3, dropout=0.2, use_cross_ffn=False, **kwargs):
+        super().__init__()
+        self.stock_gru = nn.GRU(stock_dim, stock_hidden, batch_first=True, num_layers=1)
+        self.macro_mlp = nn.Sequential(
+            nn.Linear(macro_dim, macro_hidden),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(macro_hidden, macro_hidden),
+        )
+        # use_cross_ffn: dual_streamでFFNサブレイヤー追加が明確に効いた実績があるため
+        # (2026-09-19)、同じ改良をこちらのCross-Attentionにも試せるようにする。
+        self.cross_attn = PreLN_CrossAttentionBlock(hidden_dim=stock_hidden, num_heads=num_heads,
+                                                      dropout=dropout, kv_dim=macro_hidden,
+                                                      use_ffn=use_cross_ffn)
+        self.pool = DecayPooling(seq_len=10)
+        self.classifier = nn.Sequential(
+            nn.Linear(stock_hidden, 16),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(16, num_classes)
+        )
+
+    def forward(self, x_stock, x_macro):
+        h_s, _ = self.stock_gru(x_stock)   # (B, T, stock_hidden)
+        h_m = self.macro_mlp(x_macro)      # (B, T, macro_hidden)、時点間で重み共有の独立変換
+        fused = self.cross_attn(h_s, h_m)  # query=株, key/value=マクロ
         pooled = self.pool(fused)
         return self.classifier(pooled)
