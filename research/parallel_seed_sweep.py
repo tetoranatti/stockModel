@@ -43,6 +43,16 @@ import time
 import pickle
 import subprocess
 
+# ============================================================
+# 複数worker実行時のCPU過剰並列を防止
+# NumPy / PyTorch / pandas のimport前に設定する
+# ============================================================
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["OMP_WAIT_POLICY"] = "PASSIVE"
+
 try:
     # バックグラウンド実行時、リダイレクト先がcp932/Shift-JISにfall backして日本語print文が
     # 文字化けするのを防ぐ(stage3_toggle_experiment.pyと同じ対策)。
@@ -98,6 +108,15 @@ def worker_train_only(config_label, seed, shared_data_path, out_state_path):
     「本体スクリプトのbaseline vs テスト構成比較も並列化したい」)。単一構成のみの
     従来のrun_parallel_sweep()はconfig_label="base"固定で呼ぶ。"""
     import torch
+    # 1プロセスあたりのPyTorch CPUスレッドを制限する。
+    # workerを複数並列にするため、worker内部の多重並列は原則不要。
+    torch.set_num_threads(1)
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        # 初期化後に呼ばれた場合に備える。
+        pass
+
     import stage3_toggle_experiment as m
 
     with open(shared_data_path, "rb") as f:

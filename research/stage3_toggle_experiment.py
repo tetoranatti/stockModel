@@ -217,9 +217,9 @@ USE_CROSS_FFN = True    # Cross-Attention後にFFNサブレイヤーを追加す
 USE_FINAL_NORM = False  # Cross-Attention後・pooling前に最終LayerNormを追加するか(dual_stream限定、既定False=本番と同じ)
 NUM_SELF_ATTN_LAYERS = 1  # Self-Attention(stock_encoder/macro_encoder)の層数。dual_stream/transformer_only
                            # 両対応(gru_onlyでは無視される)。既定1=本番と同じ(1層のみ)
-SEEDS = [42, 43, 44]    # 複数シードでmean/stdを見る(組み合わせによってシード間のばらつきが
+SEEDS = [42, 43, 44, 45, 46]    # 複数シードでmean/stdを見る(組み合わせによってシード間のばらつきが
                         # 変わるか比較したい場合はここを増減する。単発でよければ[42]だけにする)
-PARALLEL_MAX_CONCURRENT = 8  # base/testのseedループを並列学習する際の同時起動worker数
+PARALLEL_MAX_CONCURRENT = 10  # base/testのseedループを並列学習する際の同時起動worker数
                         # (2026-09-19追加。並列化の実現性調査で3seed=2.44x、5seed=2.9倍高速化・
                         # 結果は逐次と完全一致することを確認済み、詳細は
                         # research/parallel_seed_sweep.pyと[[feedback_nn_training_performance]]
@@ -250,7 +250,16 @@ COMMON_SAMPLE_K = 200      # 「共通評価サンプル上のPF」: p_win上位
                            # 依存しない固定件数)でPFを見る。STRONG BUY閾値だとseedによって
                            # n=0〜数千件までばらつき公平に比較できないための補助指標。
 MIN_RELIABLE_N = 30        # STRONG BUY件数がこれ未満なら「少数トレードへの偏り」警告を出す
-MAX_CONCURRENT_POSITIONS = 20  # MaxDD計算用の資金曲線シミュレーション、同時保有上限(均等配分)
+MAX_CONCURRENT_POSITIONS = 60  # MaxDD計算用の資金曲線シミュレーション、同時保有上限(均等配分)。
+                        # 2026-09-19採用、20→60。HOLDING_PERIOD=10→5・DAILY_TOPN=5採用後、
+                        # 1日5件×最大保有5営業日の流入ペースに対して旧cap=20は容量不足で、
+                        # いったん枠が全部埋まると新規候補が入れず、テスト構成では6月以降
+                        # ずっと0件約定になっていた(baseline側も先細り)。cap=60で約定率
+                        # 895件中873/852件(97%/95%)まで回復し、PFがtop_k_pf(制約無視)と
+                        # ほぼ一致する水準まで下がった(=旧capでの高いPFの一部は枠詰まりに
+                        # よる後半期間の切り捨てで水増しされていたアーティファクト)。
+                        # 同条件下でのA/B相対比較の方向性は変わらないはずだが、絶対PF水準は
+                        # このcap変更前後で比較できない点に注意。
 DAILY_TOPN = 5  # 日次Top-N運用評価(evaluate_daily_topn)で1日あたり何件選ぶか(2026-09-19追加、
                 # ユーザー指摘「全期間Top-Kに加えて日次Top-Nを主運用評価として追加」)。
                 # evaluate()の全期間score上位K件は特定の数日にシグナルが偏っていても検知できない
@@ -266,7 +275,11 @@ ENTRY_CONVENTION = "d1_open"  # "d1_close"(D+1引け/MOC、本番の確立済み
                         # ——寄成注文の約定安定性を運用面で検証してから判断すべき、ユーザー
                         # 提案「D+1引けという執行規約自体を見直す」)。学習ターゲット・
                         # バックテスト両方に同じ規約が使われる(simulate_ret_pct_d1_close経由で共有)。
-LABEL_MODE = "continuous"  # 学習ターゲット(tr_y/va_y)の定義。バックテスト側(prepare_backtest_pool)
+LABEL_MODE = "risk_adjusted_return"  # 2026-09-19採用(continuousから変更)。5seed比較(dual_stream+FFN、
+                        # d1_open/gap=5/hp=5/seq_len=5/regime_aware=False/batch=512/cap=60)で
+                        # continuous: mean=1.069/std=0.143/ensemble=1.075 に対し、
+                        # risk_adjusted_return: mean=1.149/std=0.092/ensemble=1.204(最良)。
+                        # 学習ターゲット(tr_y/va_y)の定義。バックテスト側(prepare_backtest_pool)
                         # は常に連続値ret_pct(ATRバリア方式)のまま——ここは学習ターゲットのみ
                         # 変える(2026-09-19追加、ユーザー提案「ラベル閾値を分位点/固定閾値ラベルで
                         # 試す」)。選択肢:
@@ -279,13 +292,24 @@ LABEL_MODE = "continuous"  # 学習ターゲット(tr_y/va_y)の定義。バッ�
                         #   "ret5_fixed_threshold": ATRバリア無しの単純な固定期間(RET5_HOLDING_DAYS
                         #     日後)リターンを、固定の絶対閾値(RET5_DOWN_THRESH/RET5_UP_THRESH)で
                         #     3値化する。
-                        # いずれのモードも、同じbin同士のペアはdiff=0となりNearPairRankingLossから
-                        # 自動的に除外される(有効ペア数は減る)。
+                        #   "cross_sectional_rank": 同日全銘柄横断でret_pctを百分位順位(連続値、
+                        #     離散化しない)に変換する。cross_sectional_quantileと同じ狙い
+                        #     (market-beta方向のノイズ除去)だが、離散化しないので同値ペアの
+                        #     除外による有効ペア数減少が起きにくい(2026-09-19追加)。
+                        #   "risk_adjusted_return": ret_pctをシグナル時点のATR(価格比)で正規化した
+                        #     連続値。高ボラ銘柄の額面%が過大評価されるのを補正する狙い
+                        #     (2026-09-19追加)。
+                        # 離散3値モード(cross_sectional_quantile/ret5_fixed_threshold)は同じbin
+                        # 同士のペアがdiff=0となりNearPairRankingLossから自動的に除外される
+                        # (有効ペア数は減る)。連続値モード(continuous/cross_sectional_rank/
+                        # risk_adjusted_return)は厳密な同値でない限り除外されない。
 QUANTILE_LABEL_UP = 0.30    # "cross_sectional_quantile"専用: 上位何%をUp(離散値2)とするか
 QUANTILE_LABEL_DOWN = 0.30  # "cross_sectional_quantile"専用: 下位何%をDown(離散値0)とするか(残りはHold=1)
 RET5_HOLDING_DAYS = 5       # "ret5_fixed_threshold"専用: 固定保有日数
 RET5_DOWN_THRESH = -0.03    # "ret5_fixed_threshold"専用: この値未満をDown(離散値0)
 RET5_UP_THRESH = 0.03       # "ret5_fixed_threshold"専用: この値超をUp(離散値2)、残りはHold=1
+RISK_BLEND_Z_WEIGHT = 0.7    # "risk_adjusted_blend"専用: risk_adjusted_returnのdaily z-scoreの重み
+RISK_BLEND_RANK_WEIGHT = 0.3  # "risk_adjusted_blend"専用: risk_adjusted_returnのdaily rank(pct)の重み
 USE_REGIME_AWARE_LOSS = False  # Trueにすると、NearPairRankingLossの「同一銘柄・近傍日」ペアに
                         # さらに「同一regime(LOW/MID/HIGH)」制約を加える(2026-09-19追加)。
                         # near-day(|tidx差|<=MAX_PAIR_GAP)ペアの42.7%(MAX_PAIR_GAP=20時点)・
@@ -597,9 +621,67 @@ def build_dataset(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_
             disc[s.isna()] = np.nan
             ret5_targets[t] = disc
         train_targets = ret5_targets
+    elif LABEL_MODE == "cross_sectional_rank":
+        # 同日全銘柄のraw ret_pctを横断してcross-sectional百分位順位(連続値、離散化しない)に
+        # 変換する(2026-09-19追加、ユーザー提案)。cross_sectional_quantile(離散3値)は
+        # 同じbin同士のペアがdiff=0で除外され有効ペア数が減って性能が悪化したため、
+        # 順位を連続値のまま保つことでその副作用を避ける。NearPairRankingLossは
+        # sign(diff_ret)しか見ないため、離散化してもしなくても「market-beta方向の
+        # ノイズ除去」という狙い自体は同じだが、連続順位なら厳密な同値(タイ)にならない
+        # 限りペアが除外されない。
+        wide = pd.DataFrame(raw_targets)
+        rank_pct = wide.rank(axis=1, pct=True)  # (0,1]、同値は平均順位(pandas既定)
+        rank_targets = {}
+        for t, s in raw_targets.items():
+            r = rank_pct[t].reindex(s.index) if t in rank_pct.columns else pd.Series(np.nan, index=s.index)
+            disc = r * 2.0 - 1.0  # (-1,1]にスケール、ret_pctと同程度のオーダーに揃える(必須ではないが
+            disc[s.isna()] = np.nan                       # 数値スケールの一貫性のため)
+            rank_targets[t] = disc
+        train_targets = rank_targets
+    elif LABEL_MODE == "risk_adjusted_return":
+        # ret_pctをそのシグナル時点のATR(価格比)で正規化した連続値(2026-09-19追加、
+        # ユーザー提案)。同じ%リターンでも高ボラ銘柄の方が「楽に」出せる値幅なので、
+        # 額面%のまま比較すると高ボラ銘柄が過大評価されうる——ATR/価格で割ることで補正する。
+        # 同一銘柄・近傍日のペア比較でも、その銘柄自身のボラが日によって変わっていれば
+        # サインが反転しうる(生のret_pctとは異なる情報)。
+        risk_adj_targets = {}
+        for t, df in per_ticker_df.items():
+            atr_pct_t = df['ATR'].values / np.clip(df['Close'].values, 1e-6, None)
+            s = raw_targets[t]
+            atr_pct_series = pd.Series(atr_pct_t, index=df.index).reindex(s.index).replace(0, np.nan)
+            risk_adj_targets[t] = s / atr_pct_series
+        train_targets = risk_adj_targets
+    elif LABEL_MODE == "risk_adjusted_blend":
+        # risk_adjusted_return(ATR正規化)のcross-sectional z-score(同日横断、大きさの情報を
+        # 保持・外れ値に敏感)と、同じくcross-sectional daily rank(順序情報のみ、外れ値に頑健)を
+        # RISK_BLEND_Z_WEIGHT:RISK_BLEND_RANK_WEIGHTでブレンドする(2026-09-19追加、ユーザー提案
+        # 「risk_adjusted_return + cross_sectional_rank」を明示的な式で指定)。
+        # risk_adjusted_returnとcross_sectional_rank(raw ret_pctを順位化)はそれぞれ単独では
+        # baselineを上回ったが、この2つは「ATR正規化してから順位化する」形で直接組み合わせる
+        # (cross_sectional_rankはraw ret_pctを順位化していたのに対し、ここではrisk_adjusted_
+        # returnを順位化する点が異なる)。
+        risk_adj_targets = {}
+        for t, df in per_ticker_df.items():
+            atr_pct_t = df['ATR'].values / np.clip(df['Close'].values, 1e-6, None)
+            s = raw_targets[t]
+            atr_pct_series = pd.Series(atr_pct_t, index=df.index).reindex(s.index).replace(0, np.nan)
+            risk_adj_targets[t] = s / atr_pct_series
+        wide_risk_adj = pd.DataFrame(risk_adj_targets)
+        daily_mean = wide_risk_adj.mean(axis=1)
+        daily_std = wide_risk_adj.std(axis=1)
+        rank_pct = wide_risk_adj.rank(axis=1, pct=True)
+        blend_targets = {}
+        for t, ra in risk_adj_targets.items():
+            z = (ra - daily_mean.reindex(ra.index)) / daily_std.reindex(ra.index).replace(0, np.nan)
+            r = (rank_pct[t].reindex(ra.index) if t in rank_pct.columns else pd.Series(np.nan, index=ra.index)) * 2.0 - 1.0
+            blended = RISK_BLEND_Z_WEIGHT * z + RISK_BLEND_RANK_WEIGHT * r
+            blended[ra.isna()] = np.nan
+            blend_targets[t] = blended
+        train_targets = blend_targets
     elif LABEL_MODE != "continuous":
-        raise ValueError(f"LABEL_MODE='{LABEL_MODE}'は未対応です"
-                          f"(continuous/cross_sectional_quantile/ret5_fixed_thresholdのみ)")
+        raise ValueError(f"LABEL_MODE='{LABEL_MODE}'は未対応です(continuous/cross_sectional_quantile/"
+                          f"ret5_fixed_threshold/cross_sectional_rank/risk_adjusted_return/"
+                          f"risk_adjusted_blendのみ)")
 
     tr_x_s, tr_x_m, tr_y, tr_tid, tr_tidx, tr_regime = [], [], [], [], [], []
     va_x_s, va_x_m, va_y, va_tid, va_tidx, va_regime = [], [], [], [], [], []
@@ -813,7 +895,7 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
     amp_enabled = USE_AMP and DEVICE.type == "cuda"
     # fp16はアンダーフロー対策にGradScalerが要る(bf16はfp32と同じ指数範囲なので不要)。
     use_scaler = amp_enabled and AMP_DTYPE == "fp16"
-    scaler = torch.cuda.amp.GradScaler(enabled=use_scaler)
+    scaler = torch.amp.GradScaler('cuda', enabled=use_scaler)  # 新API(2026-09-19、旧torch.cuda.amp.GradScalerはFutureWarning対象)
 
     best_val_loss, best_state, patience_cnt = float('inf'), None, 0
     patience, epochs = 7, 30
@@ -908,13 +990,19 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
             log(f"  [{label}] epoch {epoch:2d}/{epochs}: [!] 警告 train_loss/val_lossにNaNが出ています"
                 f"(train_loss={train_loss}, val_loss={val_loss})——学習が発散している可能性")
 
-        if val_loss < best_val_loss:
+        is_best = val_loss < best_val_loss
+        if is_best:
             best_val_loss, best_state, patience_cnt = val_loss, {k: v.clone() for k, v in model.state_dict().items()}, 0
             marker = " <- best"
         else:
             patience_cnt += 1
             marker = f" (patience {patience_cnt}/{patience})"
-        log(f"  [{label}] epoch {epoch:2d}/{epochs}: train_loss={train_loss:.4f} val_loss={val_loss:.4f}{marker}")
+        is_last = patience_cnt >= patience or epoch == epochs
+        # 2026-09-19簡略化(ユーザー指摘): 毎epoch出力すると並列学習時に複数プロセス分が
+        # 入り乱れてログが読みにくいため、new best・5epochごと・最終epochだけ出力する
+        # (warning系[!]ログは従来通り毎回出す、上のnp.isnan等のチェックを参照)。
+        if is_best or is_last or epoch % 5 == 0:
+            log(f"  [{label}] epoch {epoch:2d}/{epochs}: train_loss={train_loss:.4f} val_loss={val_loss:.4f}{marker}")
         if patience_cnt >= patience:
             break
     if best_state is None:
