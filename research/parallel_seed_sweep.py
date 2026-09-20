@@ -150,8 +150,14 @@ def run_jobs_parallel(jobs, script_path, max_concurrent):
     while pending or running:
         while pending and len(running) < max_concurrent:
             config_label, seed, shared_data_path, out_state_path = pending.pop(0)
+            # PYTHONDONTWRITEBYTECODE=1: 複数workerが同時にstage3_toggle_experiment.pyを
+            # 初回importすると、.pycバイトコードキャッシュの書き込みが競合し、ごく稀に
+            # 古い/不整合なキャッシュを読み込んだworkerが誤ったモデル形状(hidden_dim等)で
+            # 学習する現象を確認した(2026-09-19、10ジョブ中1件で発生・再現性低いが実害あり)。
+            # バイトコードキャッシュ自体を無効化して根本的に回避する。
+            worker_env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
             proc = subprocess.Popen([sys.executable, script_path, WORKER_FLAG, config_label, str(seed),
-                                      shared_data_path, out_state_path])
+                                      shared_data_path, out_state_path], env=worker_env)
             running.append(((config_label, seed), proc))
         still_running = []
         for key, proc in running:

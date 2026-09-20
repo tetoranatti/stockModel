@@ -151,16 +151,21 @@ BASE_MACRO_COLS = ['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentu
 # ============================================================================
 FEATURE_TOGGLES = {
     # --- 既存9(株側、本番) ---
+    # atr_ratioは2026-09-19にbaselineから除外済み(BASELINE_STOCK_COLS側で反映、この
+    # トグルのFalseはBASELINE_STOCK_COLSの定義と整合させるためのもの——本番の9特徴量には
+    # 依然含まれる)。
     'stock_ret_1d': True, 'stock_ret_5d': True, 'stock_ret_20d': True,
-    'atr_ratio': True, 'rolling_beta': True, 'vol_ratio_5d': True,
+    'atr_ratio': False, 'rolling_beta': True, 'vol_ratio_5d': True,
     'overnight_gap': True, 'dist_from_high20': True, 'dist_from_low20': True,
     # --- 既存5(マクロ側、本番) ---
     'pin_dist_ratio': True, 'wall_spread': True, 'cta_net_norm': True, 'cta_momentum': True, 'nk_ret_norm': True,
 
     # --- 株側候補(6項目スクリーニングIC通過) ---
+    # gap_strength_5/atr_accelは2026-09-19にbaselineへ採用済み(BASELINE_STOCK_COLS側で反映、
+    # このTrueはBASELINE_STOCK_COLSの定義と整合させるためのもの)。
     'rs60': False,
-    'gap_strength_5': False,
-    'atr_accel': False,
+    'gap_strength_5': True,
+    'atr_accel': True,
     # --- 株側候補(全体では不合格だがstock_feature_scorecard.csvでbest_regime=LOW) ---
     'atr_term_ratio': False,
     'dist_from_high60': False,
@@ -275,7 +280,7 @@ ENTRY_CONVENTION = "d1_open"  # "d1_close"(D+1引け/MOC、本番の確立済み
                         # ——寄成注文の約定安定性を運用面で検証してから判断すべき、ユーザー
                         # 提案「D+1引けという執行規約自体を見直す」)。学習ターゲット・
                         # バックテスト両方に同じ規約が使われる(simulate_ret_pct_d1_close経由で共有)。
-LABEL_MODE = "risk_adjusted_return"  # 2026-09-19採用(continuousから変更)。5seed比較(dual_stream+FFN、
+LABEL_MODE = "risk_adjusted_blend"  # 2026-09-19採用(continuousから変更)。5seed比較(dual_stream+FFN、
                         # d1_open/gap=5/hp=5/seq_len=5/regime_aware=False/batch=512/cap=60)で
                         # continuous: mean=1.069/std=0.143/ensemble=1.075 に対し、
                         # risk_adjusted_return: mean=1.149/std=0.092/ensemble=1.204(最良)。
@@ -308,8 +313,8 @@ QUANTILE_LABEL_DOWN = 0.30  # "cross_sectional_quantile"専用: 下位何%をDow
 RET5_HOLDING_DAYS = 5       # "ret5_fixed_threshold"専用: 固定保有日数
 RET5_DOWN_THRESH = -0.03    # "ret5_fixed_threshold"専用: この値未満をDown(離散値0)
 RET5_UP_THRESH = 0.03       # "ret5_fixed_threshold"専用: この値超をUp(離散値2)、残りはHold=1
-RISK_BLEND_Z_WEIGHT = 0.7    # "risk_adjusted_blend"専用: risk_adjusted_returnのdaily z-scoreの重み
-RISK_BLEND_RANK_WEIGHT = 0.3  # "risk_adjusted_blend"専用: risk_adjusted_returnのdaily rank(pct)の重み
+RISK_BLEND_Z_WEIGHT = 0.70    # "risk_adjusted_blend"専用: risk_adjusted_returnのdaily z-scoreの重み
+RISK_BLEND_RANK_WEIGHT = 0.30  # "risk_adjusted_blend"専用: risk_adjusted_returnのdaily rank(pct)の重み
 USE_REGIME_AWARE_LOSS = False  # Trueにすると、NearPairRankingLossの「同一銘柄・近傍日」ペアに
                         # さらに「同一regime(LOW/MID/HIGH)」制約を加える(2026-09-19追加)。
                         # near-day(|tidx差|<=MAX_PAIR_GAP)ペアの42.7%(MAX_PAIR_GAP=20時点)・
@@ -388,7 +393,12 @@ MACRO_COMPUTE_FNS = {
     'cta_net_norm_x_low_v2': lambda mpdf: mpdf['cta_net_norm'] * _compute_vol_regime_is_low(mpdf),
 }
 
-BASELINE_STOCK_COLS = list(STOCK_FEATURE_COLS)
+# 2026-09-19採用: atr_ratio除外+gap_strength_5/atr_accel追加を新しいbaselineとする
+# (5seed比較で日次Top-N・共通サブセット・単一seed平均・アンサンブルの4指標全てで
+# テスト構成が優位、かつ単一seed std改善=0.134→0.122という珍しく一貫した結果のため)。
+# 本番training/train_model_v8_exp.pyのSTOCK_FEATURE_COLS(=本番の実際の特徴量セット)は
+# 意図的に変更していない(研究ハーネスのみ)。
+BASELINE_STOCK_COLS = [c for c in STOCK_FEATURE_COLS if c != 'atr_ratio'] + ['gap_strength_5', 'atr_accel']
 BASELINE_MACRO_COLS = list(BASE_MACRO_COLS)
 
 TEST_FEATS = [f for f, on in FEATURE_TOGGLES.items() if on]
@@ -889,7 +899,15 @@ def train_model(seed, tr_data, va_data, s_cols, m_cols, label, profile_this_call
     # 2026-09-19: pair数加重・ゼロペアバッチ除外のため、regime制約の有無に関わらず常に
     # NearPairRankingLossRegimeAware(regime=Noneなら本番NearPairRankingLossと同一)を使う。
     criterion = NearPairRankingLossRegimeAware(max_gap=MAX_PAIR_GAP)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0002, weight_decay=3e-2)
+    # fused=True(2026-09-19採用): プロファイリングでaten::itemが1バッチあたり約101回と
+    # 異常に多いことが発覚し、原因を切り分けたところoptimizer.step()だけでパラメータ
+    # テンソル数(50)の2倍=100回のGPU-CPU同期が起きていた(非fused実装はbias correction項
+    # beta1**stepの計算をパラメータごとにPython側スカラーとして扱うため)。foreach=Trueでは
+    # 解消せず、fused=Trueのみ同期を完全に排除(5→505→5の実測で確認)。1seed学習で
+    # best_val_loss 0.640547→0.640563(誤差レベル、数値的に実質同一)、所要時間
+    # 113.6秒→80.7秒(1.41倍高速化)を確認済み。
+    fused_adamw = (DEVICE.type == "cuda")
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0002, weight_decay=3e-2, fused=fused_adamw)
 
     amp_dtype = torch.bfloat16 if AMP_DTYPE == "bf16" else torch.float16
     amp_enabled = USE_AMP and DEVICE.type == "cuda"
