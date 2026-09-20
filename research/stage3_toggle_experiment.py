@@ -13,6 +13,8 @@ Trueにしたものだけで構成される(既存を減らす実験も、候補
 import os
 import sys
 import time
+import json
+import hashlib
 import random
 import numpy as np
 import pandas as pd
@@ -154,44 +156,44 @@ FEATURE_TOGGLES = {
     # atr_ratioは2026-09-19にbaselineから除外済み(BASELINE_STOCK_COLS側で反映、この
     # トグルのFalseはBASELINE_STOCK_COLSの定義と整合させるためのもの——本番の9特徴量には
     # 依然含まれる)。
-    'stock_ret_1d': True, 'stock_ret_5d': True, 'stock_ret_20d': True,
-    'atr_ratio': False, 'rolling_beta': True, 'vol_ratio_5d': True,
-    'overnight_gap': True, 'dist_from_high20': True, 'dist_from_low20': True,
+    'stock_ret_1d': True, 'stock_ret_5d': False, 'stock_ret_20d': True,
+    'atr_ratio': False, 'rolling_beta': False, 'vol_ratio_5d': True,
+    'overnight_gap': False, 'dist_from_high20': False, 'dist_from_low20': False,
     # --- 既存5(マクロ側、本番) ---
-    'pin_dist_ratio': True, 'wall_spread': True, 'cta_net_norm': True, 'cta_momentum': True, 'nk_ret_norm': True,
+    'pin_dist_ratio': False, 'wall_spread': False, 'cta_net_norm': False, 'cta_momentum': False, 'nk_ret_norm': False,
 
     # --- 株側候補(6項目スクリーニングIC通過) ---
     # gap_strength_5/atr_accelは2026-09-19にbaselineへ採用済み(BASELINE_STOCK_COLS側で反映、
     # このTrueはBASELINE_STOCK_COLSの定義と整合させるためのもの)。
-    'rs60': False,
-    'gap_strength_5': True,
-    'atr_accel': True,
+    'rs60': False,  #ベースに追加したが効果なし
+    'gap_strength_5': True, #改善ベース採用
+    'atr_accel': False, #改善ベース採用
     # --- 株側候補(全体では不合格だがstock_feature_scorecard.csvでbest_regime=LOW) ---
-    'atr_term_ratio': False,
-    'dist_from_high60': False,
+    'atr_term_ratio': True,
+    'dist_from_high60': False,  #2026-09-20 貪欲法feature searchでbaseline採用(単体でPF+0.073)
     'gap_avg_5d': False,
-    'relative_strength_5d': False,  # fail_redundant(既存と相関0.68)のため除外
-    'rs20': False,                  # fail_redundant(既存と相関0.74)のため除外
-    'momentum_accel': False,
+    'relative_strength_5d': False,  # 悪化 positive_gap_ratio_5との組合せでわずかに改善
+    'rs20': False,                  # 悪化
+    'momentum_accel': False, #悪化
     'volume_zscore': False,
-    'volume_accel': False,
+    'volume_accel': False, #悪化
     'volume_ma_ratio': False,
     'close_location_value': False,
     'body_ratio': False,
-    'adx14': False,
-    'efficiency_ratio20': False,
+    'adx14': False, #改善
+    'efficiency_ratio20': False, #改善
     'days_since_high20': False,
     'new_high20': False,
-    'positive_gap_ratio_5': False,
-    'gap_follow_through': False,
+    'positive_gap_ratio_5': False, #改善
+    'gap_follow_through': False, #悪化
     # --- マクロ候補(usdjpy_chgのみIC通過) ---
-    'usdjpy_chg': False,
+    'usdjpy_chg': True,  # 悪化
     'market_vol_regime': False,
-    'vix_overnight_chg': False,
-    'nk225_ret_5d': False,
+    'vix_overnight_chg': True,
+    'nk225_ret_5d': True, #単一シード平均は改善するが、アンサンブル実運用は悪化
     'topix_ret_5d': False,
     # --- マージン残高候補(margin_ratio_levelのみIC通過) ---
-    'margin_ratio_level': False,
+    'margin_ratio_level': True, #seed平均とMaxDDは悪化するが、アンサンブル実運用では改善
     'margin_ratio_zscore_12w': False,
     'margin_buy_chg_1w': False,
     'margin_short_chg_1w': False,
@@ -280,6 +282,51 @@ ENTRY_CONVENTION = "d1_open"  # "d1_close"(D+1引け/MOC、本番の確立済み
                         # ——寄成注文の約定安定性を運用面で検証してから判断すべき、ユーザー
                         # 提案「D+1引けという執行規約自体を見直す」)。学習ターゲット・
                         # バックテスト両方に同じ規約が使われる(simulate_ret_pct_d1_close経由で共有)。
+ATR_BARRIER_UPPER = 2.0  # 利確バリア = entry_p + ATR_BARRIER_UPPER * ATR(2026-09-20追加、
+                        # 元は本番から引き継いだハードコード値。ラベル設計側の未検証項目
+                        # だったため、トグル化してMAX_PAIR_GAP/HOLDING_PERIOD/SEQ_LEN同様に
+                        # 検証できるようにした)
+ATR_BARRIER_LOWER = 1.0  # 損切りバリア = entry_p - ATR_BARRIER_LOWER * ATR(既定は本番と同じ
+                        # 2:1の非対称リワード比。simulate_ret_pct_d1_close経由で学習ターゲット・
+                        # バックテスト両方に使われる)
+USE_REGIME_ATR_BARRIER = False  # Trueにすると、ATR_BARRIER_UPPER/LOWERの代わりに
+                        # ATR_BARRIER_BY_REGIMEを使い、regime(LOW/MID/HIGH/UNKNOWN、look-ahead
+                        # 無しの拡大窓版)ごとに異なるバリア倍率を適用する(2026-09-20追加、
+                        # ユーザー提案「そもそも固定でいいのかな」)。regime別に別モデルを学習する
+                        # regime-split retraining([[regime_specific_pf_model_2026-09-19]]で
+                        # 2/3のregimeが悪化・データ枯渇で失敗)とは違い、モデル・学習データは
+                        # 1つのまま、ラベルの定義だけをregime条件付きにする軽量な変更
+                        # (regime-aware lossと同じ「データを分割しない」設計思想)。
+ATR_BARRIER_BY_REGIME = {  # USE_REGIME_ATR_BARRIER=True時のみ使う。(upper, lower)のタプル。
+                        # 既定は全regime均一(2.0, 1.0)=現行と同じ挙動になるよう初期化。
+    "LOW": (2.0, 1.0), "MID": (2.0, 1.0), "HIGH": (2.0, 1.0), "UNKNOWN": (2.0, 1.0),
+}
+BARRIER_MODE = "trailing"  # "fixed"(entry_p+upper_mult*ATR/entry_p-lower_multのどちらかに
+                        # 触れたら即終了) / "trailing"(2026-09-20採用、ユーザー提案。固定利確幅
+                        # だと「まだ伸びる取引」と「もう頭打ちの取引」を事前に区別できず、
+                        # upper倍率をどう選んでも取りこぼしと巻き戻しのトレードオフが必ず起きる
+                        # ことがdiag_upper_atr_mechanism.pyの直接検証で確認された——2.0ATR到達済み
+                        # 取引のうち3.0ATRまで伸びたのは42.6%のみ、残り57.4%はむしろ悪化していた。
+                        # トレーリングストップは固定の利確ラインを置かず、値動きに追従してストップを
+                        # 切り上げることで「伸びている間は乗り続け、失速したら確保する」を動的に
+                        # 判断する。ATR_TRAIL_ACTIVATION/ATR_TRAIL_DISTANCEで挙動を制御、
+                        # ATR_BARRIER_LOWERは発動前の初期ストップとして引き続き使う。
+                        # activation/distanceの値は下記の通り5seed比較+容量アーティファクト
+                        # チェック+exit理由診断を経て(1.0, 0.5)を採用。固定2.0/1.0に対し
+                        # 無制限評価でensemble PF 1.191->1.395(+0.204)の改善を確認済み。
+                        # activation/distanceを両方0.5未満まで縮めるとPFが際限なく上がる現象も
+                        # 見つかったが、これは日足しか無いバックテストが「ノイズ的なわずかな上昇
+                        # =即座に建値以上を確保できた」という非現実的な前提を突いた見かけ倒しと
+                        # 判断し不採用(atr_barrier_investigation_2026-09-20.md参照)。
+ATR_TRAIL_ACTIVATION = 1.0  # BARRIER_MODE="trailing"時のみ。エントリー来の高値が
+                        # entry_p+ATR_TRAIL_ACTIVATION*ATRに到達するまではトレーリング未発動
+                        # (初期ストップ=entry_p-ATR_BARRIER_LOWER*ATRのまま)。2026-09-20採用
+                        # (1.0のまま、0.25/0.5は見かけ倒しの疑いで不採用)。
+ATR_TRAIL_DISTANCE = 0.5  # BARRIER_MODE="trailing"時のみ。発動後のストップ = 建値以降の高値
+                        # - ATR_TRAIL_DISTANCE*ATR(切り上げのみ、切り下げない)。2026-09-20採用
+                        # (1.0->0.5、exit理由診断で発動後の手仕舞いが全件+0.44%以上の実質的な
+                        # 利益確保だったことを確認済み。0.25はさらに際限なく改善したが見かけ倒し
+                        # の疑いで不採用)。
 LABEL_MODE = "risk_adjusted_blend"  # 2026-09-19採用(continuousから変更)。5seed比較(dual_stream+FFN、
                         # d1_open/gap=5/hp=5/seq_len=5/regime_aware=False/batch=512/cap=60)で
                         # continuous: mean=1.069/std=0.143/ensemble=1.075 に対し、
@@ -396,9 +443,15 @@ MACRO_COMPUTE_FNS = {
 # 2026-09-19採用: atr_ratio除外+gap_strength_5/atr_accel追加を新しいbaselineとする
 # (5seed比較で日次Top-N・共通サブセット・単一seed平均・アンサンブルの4指標全てで
 # テスト構成が優位、かつ単一seed std改善=0.134→0.122という珍しく一貫した結果のため)。
+# 2026-09-20採用: dist_from_high60追加(貪欲法feature search、greedy_feature_search.py参照)。
+# 過去のFEATURE_TOGGLESコメントでは「全体では不合格」と却下されていたが、baselineから
+# 1個ずつクリーンに再検証したところアンサンブル日次Top-5 PF=1.151->1.224(+0.073)で
+# 単体採用。round2で残り36候補を追試したが誰もこのPFを上回れず探索収束(市場vol regime
+# が最も近かったがPF=1.197止まり)。過去の「改善」コメント付き候補(adx14等)は複数候補を
+# 組み合わせたテストでの結果であり、単体再検証では非採用だった。
 # 本番training/train_model_v8_exp.pyのSTOCK_FEATURE_COLS(=本番の実際の特徴量セット)は
 # 意図的に変更していない(研究ハーネスのみ)。
-BASELINE_STOCK_COLS = [c for c in STOCK_FEATURE_COLS if c != 'atr_ratio'] + ['gap_strength_5', 'atr_accel']
+BASELINE_STOCK_COLS = [c for c in STOCK_FEATURE_COLS if c != 'atr_ratio'] + ['gap_strength_5', 'atr_accel', 'dist_from_high60']
 BASELINE_MACRO_COLS = list(BASE_MACRO_COLS)
 
 TEST_FEATS = [f for f, on in FEATURE_TOGGLES.items() if on]
@@ -427,15 +480,23 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def simulate_ret_pct_d1_close(closes, highs, lows, atrs, holding_period, opens=None, entry_convention="d1_close"):
+def simulate_ret_pct_d1_close(closes, highs, lows, atrs, holding_period, opens=None, entry_convention="d1_close",
+                               regime_labels=None, barrier_mode="fixed"):
     """学習ターゲットとD+1引け(MOC)バックテストを同一関数に統合する(2026-09-19、
     ユーザー指摘で発覚した不一致の修正)。
 
     entry_convention: "d1_close"(既定、D+1引け/MOC) または "d1_open"(D+1始値/MOO、
     2026-09-19追加、ユーザー提案「D+1引けという執行規約自体を見直す」——D+1引けは
     シグナル生成からエントリーまでに丸1日分の値動き(=シグナルの鮮度が失われる時間)が
-    挟まるため、より早いD+1始値エントリーと比較検証する)。"d1_open"時はopens配列が必須。
-    "d1_open"はエントリー当日(idx+1)がまだ引けていないため、バリア判定をその日
+    挟まるため、より早いD+1始値エントリーと比較検証する)または"d1_open_pullback"
+    (2026-09-20追加、ユーザー提案。本番の元の結論(D+1引け採用の根拠)は「寄り天(始値近くで
+    買って当日中に下落)を避けられる」という日中値動きの非対称性だったが、このハーネスは
+    日足OHLCしか使わず日中パスを再現できない。分足データも無い(reference_data_sources_
+    constraints.md参照)ため、既存のlows[idx+1](当日安値、バリア判定で既に使用済み)を使い、
+    「始値と安値の中間で約定した」という悲観的シナリオを追加データ無しで近似する——
+    d1_openの優位性が寄り天リスクに対して頑健かどうかのストレステスト)。
+    "d1_open"/"d1_open_pullback"時はopens配列が必須。
+    "d1_open"系はエントリー当日(idx+1)がまだ引けていないため、バリア判定をその日
     (h=1)から開始する(production _simulate_ret_pctのnext_open_entryと同じ規約)。
     "d1_close"はエントリー当日の引けで既に約定済みのため、判定は翌日(h=2)から
     (エントリー日基準のオーバーナイトギャップ分のズレは無い)。
@@ -450,31 +511,78 @@ def simulate_ret_pct_d1_close(closes, highs, lows, atrs, holding_period, opens=N
     (production側のtraining/train_model_v8_exp.pyは意図的に触れていない——
     ユーザー判断で研究ハーネスのみ修正)。
 
+    regime_labels: 'LOW'/'MID'/'HIGH'/'UNKNOWN'のndarray(closesと同じ長さ、idx=シグナル日基準)
+    を渡すと、USE_REGIME_ATR_BARRIER=True時にATR_BARRIER_UPPER/LOWERの代わりに
+    ATR_BARRIER_BY_REGIME[regime_labels[idx]]を使う(2026-09-20追加、ユーザー提案「そもそも
+    固定でいいのかな」——regime-split retrainingのようにモデル・データを分割せず、
+    ラベルの定義だけをregime条件付きにする)。Noneまたはregime_labels[idx]が
+    ATR_BARRIER_BY_REGIMEに無いキーの場合はATR_BARRIER_UPPER/LOWERにフォールバックする。
+    barrier_mode: "fixed"(既定)または"trailing"(2026-09-20追加、ユーザー提案「伸びしろの
+    ある取引を早期利確しないためには」)。trailing時は固定upper_pを使わず、エントリー来の
+    高値がATR_TRAIL_ACTIVATION*ATR伸びたらトレーリング発動、以降ストップ=高値-
+    ATR_TRAIL_DISTANCE*ATR(切り上げのみ)を毎日追従させる。ある日の安値が「その日の
+    高値でストップを切り上げる前の」ストップを下回ったら即終了(楽観的に高値が先に
+    付いたと仮定しない、保守的な順序)。発動前は初期ストップ(entry_p-ATR_BARRIER_LOWER*ATR)
+    のみが有効で、upper方向の終了条件は無い(HOLDING_PERIOD超過のタイムアウトのみ)。
+    regime_labels/USE_REGIME_ATR_BARRIERはtrailing modeでは未対応(fixedのみ)。
+
     戻り値: (targets, exit_h_days)。targetsはret_pct(計算不能な末尾holding_period
     件はnan)。exit_h_daysは何営業日後に手仕舞いしたか(MaxDD計算のexit_date算出に必要、
     nanの日は-1)。"""
     n_bars = len(closes)
     targets = np.full(n_bars, np.nan)
     exit_h_days = np.full(n_bars, -1, dtype=int)
-    start_h = 1 if entry_convention == "d1_open" else 2
+    start_h = 1 if entry_convention in ("d1_open", "d1_open_pullback", "d1_open_pullback_high") else 2
     for idx in range(n_bars - holding_period):
-        entry_p = opens[idx + 1] if entry_convention == "d1_open" else closes[idx + 1]
+        if entry_convention == "d1_open":
+            entry_p = opens[idx + 1]
+        elif entry_convention == "d1_open_pullback":
+            entry_p = (opens[idx + 1] + lows[idx + 1]) / 2.0
+        elif entry_convention == "d1_open_pullback_high":
+            # 2026-09-20追加: d1_open_pullback(始値〜安値)は買いポジションにとって有利な
+            # (=安く買えた)仮定になってしまい、寄り天(高値近くで買って下落)の悲観シナリオ
+            # として逆方向だったための訂正版。始値〜高値の中間を使い、不利な価格で
+            # 約定したと仮定する。lows/highsとも当日の実現値を使うためルックアヘッドは
+            # 残るが、少なくとも悲観方向にはなる。
+            entry_p = (opens[idx + 1] + highs[idx + 1]) / 2.0
+        else:
+            entry_p = closes[idx + 1]
         # 利確/損切りバリアはentry_p基準(2026-09-19修正——以前はd_close=closes[idx]
         # 基準になっており、実際のエントリー価格entry_pとのオーバーナイトギャップ分だけ
         # バリア位置がズレていた。実測でギャップ/ATRは平均0.58・中央値0.43、損切り幅
         # 1ATRの50%以上ズレている日が43.7%と、無視できない規模だった。本番
         # training/train_model_v8_exp.py::_simulate_ret_pctは元々entry_p基準で正しく
         # 統一されており、こちらが統合時に合わせ損ねていた)。
-        upper_p, lower_p = entry_p + 2.0 * atrs[idx], entry_p - 1.0 * atrs[idx]
+        if USE_REGIME_ATR_BARRIER and regime_labels is not None:
+            up_mult, lo_mult = ATR_BARRIER_BY_REGIME.get(regime_labels[idx], (ATR_BARRIER_UPPER, ATR_BARRIER_LOWER))
+        else:
+            up_mult, lo_mult = ATR_BARRIER_UPPER, ATR_BARRIER_LOWER
         exit_p, h_days = None, holding_period
-        for h in range(start_h, holding_period + 1):
-            hi, lo = highs[idx + h], lows[idx + h]
-            if lo <= lower_p and hi >= upper_p:
-                exit_p, h_days = lower_p, h; break
-            elif hi >= upper_p:
-                exit_p, h_days = upper_p, h; break
-            elif lo <= lower_p:
-                exit_p, h_days = lower_p, h; break
+        if barrier_mode == "trailing":
+            # トレーリングストップ(2026-09-20追加)。固定upper_pは使わない。各日、
+            # 「その日の高値でストップを切り上げる前」の状態でまず安値がストップを
+            # 下回っていないか確認する(楽観的に高値が先に付いたと仮定しない、
+            # 既存の同時タッチ処理と同じ保守的な順序)。
+            stop = entry_p - lo_mult * atrs[idx]
+            peak = entry_p
+            for h in range(start_h, holding_period + 1):
+                hi, lo = highs[idx + h], lows[idx + h]
+                if lo <= stop:
+                    exit_p, h_days = stop, h; break
+                if hi > peak:
+                    peak = hi
+                if (peak - entry_p) >= ATR_TRAIL_ACTIVATION * atrs[idx]:
+                    stop = max(stop, peak - ATR_TRAIL_DISTANCE * atrs[idx])
+        else:
+            upper_p, lower_p = entry_p + up_mult * atrs[idx], entry_p - lo_mult * atrs[idx]
+            for h in range(start_h, holding_period + 1):
+                hi, lo = highs[idx + h], lows[idx + h]
+                if lo <= lower_p and hi >= upper_p:
+                    exit_p, h_days = lower_p, h; break
+                elif hi >= upper_p:
+                    exit_p, h_days = upper_p, h; break
+                elif lo <= lower_p:
+                    exit_p, h_days = lower_p, h; break
         if exit_p is None:
             exit_p = closes[idx + holding_period]
         targets[idx] = (exit_p - entry_p) / entry_p
@@ -547,7 +655,7 @@ def compute_global_split_date(valid_dates, regime_filter=None):
 
 
 def build_dataset(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_pool_df, regime_filter=None,
-                   regime_labels_for_loss=None, global_split_date_override=None):
+                   regime_labels_for_loss=None, global_split_date_override=None, barrier_regime_labels=None):
     """regime_filter: date->bool(True=採用)のpd.Seriesを渡すと、その日付のサンプルだけ
     train/valに採用する(2026-09-19追加、regime別モデル用)。SEQ_LEN分の価格系列window自体は
     regimeでフィルタせず連続したまま使う(不連続にすると時系列モデルの入力が歪むため)。
@@ -555,6 +663,11 @@ def build_dataset(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_
     regime_labels_for_loss: date->'LOW'/'MID'/'HIGH'のpd.Seriesを渡すと、各サンプルの
     regime id(0/1/2、不明なら-1)を6番目の要素として返す(2026-09-19追加、
     NearPairRankingLossRegimeAware用。regime_filterとは独立)。
+    barrier_regime_labels: date->'LOW'/'MID'/'HIGH'/'UNKNOWN'のpd.Series(2026-09-20追加)。
+    USE_REGIME_ATR_BARRIER=True時、simulate_ret_pct_d1_closeに各銘柄のregime系列を渡して
+    ATRバリア倍率をregime別に切り替える。regime_labels_for_loss/regime_filterとは独立
+    (別の目的で同じ拡大窓regimeラベルを使い回すことが多いが、指定するSeries自体は
+    呼び出し側の自由)。
     global_split_date_override: 指定すると、このconfig自身のvalid_datesから
     split dateを計算せず、渡された値をそのまま使う(2026-09-19追加、ユーザー指摘
     「split dateをbase/testで完全共通化」。base/testで候補特徴量のNaNパターンが違うと
@@ -595,9 +708,12 @@ def build_dataset(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_
     raw_targets = {}
     for t, df in per_ticker_df.items():
         closes, highs, lows, atrs = df['Close'].values, df['High'].values, df['Low'].values, df['ATR'].values
-        opens = df['Open'].values if ENTRY_CONVENTION == "d1_open" else None
+        opens = df['Open'].values if ENTRY_CONVENTION in ("d1_open", "d1_open_pullback", "d1_open_pullback_high") else None
+        regime_arr = (barrier_regime_labels.reindex(df.index).fillna("UNKNOWN").values
+                      if barrier_regime_labels is not None else None)
         targets, _ = simulate_ret_pct_d1_close(closes, highs, lows, atrs, HOLDING_PERIOD,
-                                                opens=opens, entry_convention=ENTRY_CONVENTION)
+                                                opens=opens, entry_convention=ENTRY_CONVENTION,
+                                                regime_labels=regime_arr, barrier_mode=BARRIER_MODE)
         raw_targets[t] = pd.Series(targets, index=df.index)
 
     train_targets = raw_targets
@@ -769,7 +885,7 @@ def build_dataset(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_
 
 
 def prepare_backtest_pool(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_pool_df, regime_filter=None,
-                           global_split_date_override=None):
+                           global_split_date_override=None, barrier_regime_labels=None):
     per_ticker_df = build_per_ticker(pool, margin_pool, sector_pool, macro_pool_df, stock_cols)
     macro_feed = macro_pool_df[macro_cols]
     for t in list(per_ticker_df.keys()):
@@ -812,9 +928,12 @@ def prepare_backtest_pool(macro_cols, stock_cols, pool, margin_pool, sector_pool
             regime_ok = regime_filter.reindex(dates).fillna(False).values if regime_filter is not None else None
             # build_datasetの学習ターゲットと同じ関数を使う(2026-09-19、同一関数化・
             # エントリー価格前提の統一)。exit_h_daysはMaxDD計算のexit_date算出に必要。
-            opens = df['Open'].values if ENTRY_CONVENTION == "d1_open" else None
+            opens = df['Open'].values if ENTRY_CONVENTION in ("d1_open", "d1_open_pullback", "d1_open_pullback_high") else None
+            regime_arr = (barrier_regime_labels.reindex(df.index).fillna("UNKNOWN").values
+                          if barrier_regime_labels is not None else None)
             ret_pcts, exit_h_days = simulate_ret_pct_d1_close(closes, highs, lows, atrs, HOLDING_PERIOD,
-                                                               opens=opens, entry_convention=ENTRY_CONVENTION)
+                                                               opens=opens, entry_convention=ENTRY_CONVENTION,
+                                                               regime_labels=regime_arr, barrier_mode=BARRIER_MODE)
 
             for idx in range(SEQ_LEN - 1, n_samples - HOLDING_PERIOD):
                 if not valid_ok[idx]:
@@ -841,6 +960,37 @@ def prepare_backtest_pool(macro_cols, stock_cols, pool, margin_pool, sector_pool
             log(f"  [!] prepare_backtest_pool: {t}をスキップ({type(e).__name__}: {e})")
             continue
     return pool_out
+
+
+def baseline_cache_fingerprint(n_train, n_val, split_date):
+    """baselineモデルの学習結果を左右する全設定をフィンガープリント化する(2026-09-19追加、
+    ユーザー提案「毎回ベースラインも一緒に学習させる必要もなさそう」)。候補特徴量(テスト側)
+    だけを変えて何度も比較する、このセッションで多用してきたワークフローでは、baseline側の
+    設定は変わらないことが多い——このフィンガープリントが前回と一致すれば、baselineの
+    学習をスキップしてキャッシュ済みstate_dictを再利用できる。n_train/n_val/split_dateも
+    含めることで、データ自体が更新された場合(新しい取引日が追加された等)は自動的に
+    キャッシュが無効化される。"""
+    cfg = dict(
+        baseline_stock_cols=sorted(BASELINE_STOCK_COLS), baseline_macro_cols=sorted(BASELINE_MACRO_COLS),
+        model_arch=MODEL_ARCH, model_hidden_dim=MODEL_HIDDEN_DIM, model_num_heads=MODEL_NUM_HEADS,
+        use_cross_ffn=USE_CROSS_FFN, use_final_norm=USE_FINAL_NORM, num_self_attn_layers=NUM_SELF_ATTN_LAYERS,
+        stock_hidden_dim=STOCK_HIDDEN_DIM, macro_hidden_dim=MACRO_HIDDEN_DIM,
+        cross_attn_num_heads=CROSS_ATTN_NUM_HEADS, cross_attn_use_ffn=CROSS_ATTN_USE_FFN,
+        seq_len=SEQ_LEN, holding_period=HOLDING_PERIOD, max_pair_gap=MAX_PAIR_GAP,
+        entry_convention=ENTRY_CONVENTION, atr_barrier_upper=ATR_BARRIER_UPPER, atr_barrier_lower=ATR_BARRIER_LOWER,
+        use_regime_atr_barrier=USE_REGIME_ATR_BARRIER,
+        atr_barrier_by_regime=(sorted(ATR_BARRIER_BY_REGIME.items()) if USE_REGIME_ATR_BARRIER else None),
+        barrier_mode=BARRIER_MODE, atr_trail_activation=ATR_TRAIL_ACTIVATION, atr_trail_distance=ATR_TRAIL_DISTANCE,
+        label_mode=LABEL_MODE,
+        quantile_up=QUANTILE_LABEL_UP, quantile_down=QUANTILE_LABEL_DOWN,
+        ret5_holding_days=RET5_HOLDING_DAYS, ret5_down=RET5_DOWN_THRESH, ret5_up=RET5_UP_THRESH,
+        risk_blend_z=RISK_BLEND_Z_WEIGHT, risk_blend_rank=RISK_BLEND_RANK_WEIGHT,
+        train_batch_size=TRAIN_BATCH_SIZE, val_batch_size=VAL_BATCH_SIZE,
+        use_regime_aware_loss=USE_REGIME_AWARE_LOSS, regime_filter=REGIME_FILTER, macro_clip=MACRO_CLIP,
+        n_train=n_train, n_val=n_val, split_date=str(split_date),
+    )
+    key = json.dumps(cfg, sort_keys=True, default=str)
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
 def build_model(s_cols, m_cols):
@@ -1201,8 +1351,19 @@ if __name__ == "__main__":
         # テスト構成比較も並列化したい」)。parallel_seed_sweep.pyで検証済みの方式
         # (3seed 2.44x、5seed 2.9x、逐次/並列で結果が完全一致することを確認済み、
         # [[feedback_nn_training_performance]]参照)を、base/test2構成に一般化して使う。
-        import tempfile, pickle as _pickle, torch as _torch
+        import tempfile, shutil as _shutil, pickle as _pickle, torch as _torch
         import parallel_seed_sweep as _pss
+
+        # baselineモデルのキャッシュ(2026-09-19追加、ユーザー提案「毎回ベースラインも
+        # 一緒に学習させる必要もなさそう」)。設定が前回と変わっていなければ、baseline側の
+        # 学習をスキップしてキャッシュ済みstate_dictを再利用する(test側は候補を試すたびに
+        # 変わるので常に学習する)。
+        _fp = baseline_cache_fingerprint(len(tr0[2]), len(va0[2]), shared_split_date)
+        _cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "baseline_model_cache", _fp)
+        os.makedirs(_cache_dir, exist_ok=True)
+        _cached_seeds = {s for s in SEEDS if os.path.exists(os.path.join(_cache_dir, f"state_{s}.pt"))}
+        if _cached_seeds:
+            log(f"[*] baselineキャッシュ命中(fingerprint={_fp}): seed={sorted(_cached_seeds)} は学習をスキップします")
 
         _tmpdir = tempfile.mkdtemp(prefix="stage3_main_parallel_")
         _shared_data_path = os.path.join(_tmpdir, "shared_data.pkl")
@@ -1216,15 +1377,23 @@ if __name__ == "__main__":
         _out_paths = {}
         for seed in SEEDS:
             for label in ("base", "test"):
+                if label == "base" and seed in _cached_seeds:
+                    _out_paths[(label, seed)] = os.path.join(_cache_dir, f"state_{seed}.pt")
+                    continue
                 out_path = os.path.join(_tmpdir, f"state_{label}_{seed}.pt")
                 _jobs.append((label, seed, _shared_data_path, out_path))
                 _out_paths[(label, seed)] = out_path
 
-        log(f"[*] base×{len(SEEDS)}seed + test×{len(SEEDS)}seed = {len(_jobs)}ジョブを並列学習します"
-            f"(最大{PARALLEL_MAX_CONCURRENT}並列)...")
+        log(f"[*] base×{len(SEEDS) - len(_cached_seeds)}seed(新規)+ test×{len(SEEDS)}seed = {len(_jobs)}ジョブを"
+            f"並列学習します(最大{PARALLEL_MAX_CONCURRENT}並列)...")
         _t0 = time.time()
         _pss.run_jobs_parallel(_jobs, os.path.abspath(_pss.__file__), PARALLEL_MAX_CONCURRENT)
         log(f"[+] 全{len(_jobs)}ジョブ学習完了: 実時間={time.time()-_t0:.1f}秒")
+
+        # 新規学習したbaselineモデルをキャッシュに保存(次回以降の再利用のため)
+        for seed in SEEDS:
+            if seed not in _cached_seeds:
+                _shutil.copy2(_out_paths[("base", seed)], os.path.join(_cache_dir, f"state_{seed}.pt"))
 
         for seed in SEEDS:
             log(f"=== seed={seed}(推論・評価) ===")
