@@ -67,7 +67,7 @@ from modules.cross_sectional_features import (
 )
 from _feature_cache_utils import (
     get_full_feature_pool_df, get_full_macro_pool_df, get_margin_pool_df,
-    get_sector_relative_pool_df,
+    get_sector_relative_pool_df, _load_sector_map,
 )
 from modules.regime_risk_model import _compute_vol_regime_is_low
 from modules.model_inference import predict_probabilities_ensemble_batch
@@ -77,6 +77,15 @@ from _eval_utils import (
     compute_regime_labels, compute_regime_labels_expanding, regime_breakdown, monthly_breakdown,
     evaluate, evaluate_daily_topn,
 )
+
+# 銘柄->TSE33業種idの対応表(2026-09-21追加、USE_SECTOR_EMBEDDING用)。sector33名が
+# 取得できない/未分類の銘柄はid=0(不明)に落とす。_load_sector_mapはユニバース非依存の
+# マスタ全体を返すので、モジュール読み込み時に1回だけ計算すれば良い。
+_SECTOR_MAP_RAW = _load_sector_map()
+_SECTOR_NAMES_SORTED = sorted({v for v in _SECTOR_MAP_RAW.values() if v is not None})
+SECTOR_NAME_TO_ID = {name: i + 1 for i, name in enumerate(_SECTOR_NAMES_SORTED)}  # 0=不明/未分類用に予約
+TICKER_TO_SECTOR_ID = {t: SECTOR_NAME_TO_ID.get(v, 0) for t, v in _SECTOR_MAP_RAW.items()}
+NUM_SECTORS = len(_SECTOR_NAMES_SORTED) + 1
 
 
 class NearPairRankingLossFast(nn.Module):
@@ -224,6 +233,16 @@ USE_CROSS_FFN = True    # Cross-Attention後にFFNサブレイヤーを追加す
 USE_FINAL_NORM = False  # Cross-Attention後・pooling前に最終LayerNormを追加するか(dual_stream限定、既定False=本番と同じ)
 NUM_SELF_ATTN_LAYERS = 1  # Self-Attention(stock_encoder/macro_encoder)の層数。dual_stream/transformer_only
                            # 両対応(gru_onlyでは無視される)。既定1=本番と同じ(1層のみ)
+USE_SECTOR_EMBEDDING = False  # 銘柄のTSE33業種をnn.Embeddingで学習し、pooling後の特徴に結合するか
+                               # (2026-09-21追加、ユーザー提案「銘柄とかセクターでembeddingするのは
+                               # どうかな」)。dual_stream限定。sector33業種idをw_sの最終列に定数値
+                               # として埋め込み、モデル側でGRUに渡す前に切り離してnn.Embeddingに通す
+                               # 実装(既存のtr_data/va_dataタプル構造・6要素を変えずに済む)。
+                               # 2026-09-21検証済み・不採用: 現行baseline(10株+5マクロ)にsector_embed_dim=4で
+                               # 追加した5seedアンサンブルPF=1.549(参照1.604比 -0.055)、明確な悪化。
+                               # 既存のsector_rel_*特徴量(sector_pool由来)と重複した情報+150銘柄への
+                               # 過学習リスクが実際に裏目に出たとみられる(詳細はmemory参照)。
+SECTOR_EMBED_DIM = 4  # USE_SECTOR_EMBEDDING=True時のembedding次元
 SEEDS = [42, 43, 44, 45, 46]    # 複数シードでmean/stdを見る(組み合わせによってシード間のばらつきが
                         # 変わるか比較したい場合はここを増減する。単発でよければ[42]だけにする)
 PARALLEL_MAX_CONCURRENT = 10  # base/testのseedループを並列学習する際の同時起動worker数
@@ -449,9 +468,17 @@ MACRO_COMPUTE_FNS = {
 # 単体採用。round2で残り36候補を追試したが誰もこのPFを上回れず探索収束(市場vol regime
 # が最も近かったがPF=1.197止まり)。過去の「改善」コメント付き候補(adx14等)は複数候補を
 # 組み合わせたテストでの結果であり、単体再検証では非採用だった。
+# 2026-09-20再採用(BARRIER_MODE="trailing"採用後): stock_ret_5dを除外。トレーリング
+# ストップ採用でラベル定義が大きく変わったため後退法(greedy_feature_backward.py、
+# ユーザー提案「まずベースから減らしていって確認する」)で全16特徴量を再検証したところ、
+# stock_ret_5dの除外でアンサンブル日次Top-5 PF=1.424->1.604(+0.180)。round2で残り14特徴量の
+# 除外を試したが誰も上回れず探索収束(最良はatr_accel除外でPF=1.563止まり)。2seedスモーク
+# テストではgap_strength_5/overnight_gapも除外候補に見えたが、5seedの厳密な検証では
+# 改善せず不採用(2seed比較のノイズによる見かけ上の効果だった)。
 # 本番training/train_model_v8_exp.pyのSTOCK_FEATURE_COLS(=本番の実際の特徴量セット)は
 # 意図的に変更していない(研究ハーネスのみ)。
-BASELINE_STOCK_COLS = [c for c in STOCK_FEATURE_COLS if c != 'atr_ratio'] + ['gap_strength_5', 'atr_accel', 'dist_from_high60']
+BASELINE_STOCK_COLS = [c for c in STOCK_FEATURE_COLS if c not in ('atr_ratio', 'stock_ret_5d')] + \
+    ['gap_strength_5', 'atr_accel', 'dist_from_high60']
 BASELINE_MACRO_COLS = list(BASE_MACRO_COLS)
 
 TEST_FEATS = [f for f, on in FEATURE_TOGGLES.items() if on]
@@ -837,6 +864,7 @@ def build_dataset(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_
             # 2026-09-19追加: NearPairRankingLossのgap計算に使うtidxは、配列位置ではなく
             # 全銘柄共通のカレンダー日位置にする(calendar_tidx_map、上で定義)。
             cal_tidx_arr = np.array([calendar_tidx_map.get(d, -1) for d in dates], dtype=np.int64)
+            sec_id = TICKER_TO_SECTOR_ID.get(t, 0)  # 2026-09-21追加、USE_SECTOR_EMBEDDING用(銘柄固定値)
 
             for idx in range(SEQ_LEN - 1, n_samples):
                 if not valid_ok[idx]:
@@ -855,6 +883,11 @@ def build_dataset(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_
                 w_m = vals_m[idx - SEQ_LEN + 1: idx + 1].copy()
                 if np.isnan(w_m).any():  # 2026-09-19追加: w_s側にしかNaNチェックが無かった
                     continue
+                if USE_SECTOR_EMBEDDING:
+                    # 2026-09-21追加: sector_idをw_sの最終列に定数値として埋め込む(既存の
+                    # tr_data/va_dataタプル構造を変えずに済ませるため)。モデル側forward()で
+                    # GRUに渡す前に切り離す。
+                    w_s = np.concatenate([w_s, np.full((SEQ_LEN, 1), sec_id, dtype=w_s.dtype)], axis=1)
                 target = train_target_vals[idx]
                 r_id = int(regime_id_arr[idx]) if regime_id_arr is not None else -1
                 # 全銘柄共通のカレンダー日(global_split_date)で分割する(2026-09-19修正)。
@@ -934,6 +967,7 @@ def prepare_backtest_pool(macro_cols, stock_cols, pool, margin_pool, sector_pool
             ret_pcts, exit_h_days = simulate_ret_pct_d1_close(closes, highs, lows, atrs, HOLDING_PERIOD,
                                                                opens=opens, entry_convention=ENTRY_CONVENTION,
                                                                regime_labels=regime_arr, barrier_mode=BARRIER_MODE)
+            sec_id = TICKER_TO_SECTOR_ID.get(t, 0)  # 2026-09-21追加、USE_SECTOR_EMBEDDING用(銘柄固定値)
 
             for idx in range(SEQ_LEN - 1, n_samples - HOLDING_PERIOD):
                 if not valid_ok[idx]:
@@ -950,6 +984,8 @@ def prepare_backtest_pool(macro_cols, stock_cols, pool, margin_pool, sector_pool
                 w_m = vals_m[idx - SEQ_LEN + 1: idx + 1].copy()
                 if np.isnan(w_m).any():  # 2026-09-19追加: w_s側にしかNaNチェックが無かった
                     continue
+                if USE_SECTOR_EMBEDDING:  # 2026-09-21追加、build_datasetと同じ埋め込み方
+                    w_s = np.concatenate([w_s, np.full((SEQ_LEN, 1), sec_id, dtype=w_s.dtype)], axis=1)
                 # exit_dateはMaxDD計算(資金曲線シミュレーション)に必要(2026-09-19追加)
                 # entry_date=dates[idx+1](D+1引け)をMaxDD計算用に追加(2026-09-19修正、
                 # ユーザー指摘「MaxDDのエントリー日をD+1へ変更」。以前はcompute_max_drawdownが
@@ -974,6 +1010,7 @@ def baseline_cache_fingerprint(n_train, n_val, split_date):
         baseline_stock_cols=sorted(BASELINE_STOCK_COLS), baseline_macro_cols=sorted(BASELINE_MACRO_COLS),
         model_arch=MODEL_ARCH, model_hidden_dim=MODEL_HIDDEN_DIM, model_num_heads=MODEL_NUM_HEADS,
         use_cross_ffn=USE_CROSS_FFN, use_final_norm=USE_FINAL_NORM, num_self_attn_layers=NUM_SELF_ATTN_LAYERS,
+        use_sector_embedding=USE_SECTOR_EMBEDDING, sector_embed_dim=SECTOR_EMBED_DIM,
         stock_hidden_dim=STOCK_HIDDEN_DIM, macro_hidden_dim=MACRO_HIDDEN_DIM,
         cross_attn_num_heads=CROSS_ATTN_NUM_HEADS, cross_attn_use_ffn=CROSS_ATTN_USE_FFN,
         seq_len=SEQ_LEN, holding_period=HOLDING_PERIOD, max_pair_gap=MAX_PAIR_GAP,
@@ -1007,11 +1044,17 @@ def build_model(s_cols, m_cols):
                              num_heads=CROSS_ATTN_NUM_HEADS, num_classes=3, dropout=0.2,
                              use_cross_ffn=CROSS_ATTN_USE_FFN, seq_len=SEQ_LEN)
     else:
-        model_kwargs = dict(stock_dim=len(s_cols), macro_dim=len(m_cols), hidden_dim=MODEL_HIDDEN_DIM,
+        stock_dim = len(s_cols) + (1 if (USE_SECTOR_EMBEDDING and MODEL_ARCH == "dual_stream") else 0)
+        model_kwargs = dict(stock_dim=stock_dim, macro_dim=len(m_cols), hidden_dim=MODEL_HIDDEN_DIM,
                              num_heads=MODEL_NUM_HEADS, num_classes=3, dropout=0.2, seq_len=SEQ_LEN)
         if MODEL_ARCH == "dual_stream":
             model_kwargs['use_cross_ffn'] = USE_CROSS_FFN
             model_kwargs['use_final_norm'] = USE_FINAL_NORM
+            if USE_SECTOR_EMBEDDING:
+                # 2026-09-21追加: w_sの最終列に埋め込んだsector_idを切り離してnn.Embeddingに通す
+                # (stock_dimは上でs_cols+1に増やし済み)。dual_stream限定。
+                model_kwargs['num_sectors'] = NUM_SECTORS
+                model_kwargs['sector_embed_dim'] = SECTOR_EMBED_DIM
         # gru_only/transformer_onlyにはuse_cross_ffn/use_final_norm概念が無いので渡さない
         # (**kwargsを持つので万一渡しても無視されるが、意図を明確にするため分岐している)
         if MODEL_ARCH in ("dual_stream", "transformer_only"):
