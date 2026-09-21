@@ -1,0 +1,36 @@
+# Claude Codeが読み込み/検索対象にしなくて良いファイル・ディレクトリ。
+# .gitignoreと重複する項目も多いが、.gitignoreはgit追跡対象外なだけで読み込み自体は
+# 妨げないため、こちらは別途明示する(2026-09-21作成)。
+
+# Python実行時キャッシュ
+__pycache__/
+*.pyc
+
+# 特徴量/モデルキャッシュ(大容量pickle、いつでも再生成可能。中身を見る必要があるときは
+# 個別にReadすれば良く、常時コンテキストに含める必要は無い)
+cache/
+*.pkl
+
+# 学習済みモデルのチェックポイント(バイナリ、直接読んでも意味がない)
+*.pt
+
+# research配下の実験ログ(構造化バイナリ、中身確認はpandasで開く。research/greedy_search_log.parquet等)
+*.parquet
+
+# 生データダンプ(JPXの日次/週次生データ、PDF等。コード上で参照する際は個別に開く)
+jpx_raw_year/
+jpx_short_pdf/
+jpx_weekly_oi/
+data/
+
+# 旧コードの置き場(.gitignoreでも除外済み、現行コードとは無関係)
+archive/
+
+# フロントエンド依存パッケージ
+ui/node_modules/
+
+# 環境変数・シークレット
+.env
+
+# バージョン管理システム内部
+.git/

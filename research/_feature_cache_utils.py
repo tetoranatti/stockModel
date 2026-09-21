@@ -117,6 +117,17 @@ POOL_MACRO_FEATURE_COLS = [
     'market_vol_regime_x_high', 'usdjpy_chg_x_low',
 ]
 
+# 市場breadth系の候補特徴量プール(2026-09-21追加、ユーザー提案: ユニバース全銘柄の
+# 横断的な強弱を捉える指標。個別銘柄の特徴量プールとは独立に、universe_bars.parquetの
+# 生OHLCVから直接計算する)
+POOL_BREADTH_FEATURE_COLS = [
+    'market_above_ma25_ratio',   # 25日移動平均を上回っている銘柄の比率
+    'market_newhigh20_ratio',    # 過去20日高値を更新した銘柄の比率
+    'market_newlow20_ratio',     # 過去20日安値を更新した銘柄の比率
+    'market_breakout_score',     # 20日高値/安値を超過した幅(%)の銘柄横断平均(ブレイクアウトの強さ)
+    'market_turnover_z',         # 市場全体売買代金(Close×Volume合計)5日平均の60日zスコア
+]
+
 
 def _compute_pool_stock_features(df, macro_df):
     """POOL_STOCK_FEATURE_COLS全部を計算して追加する。dfはcompute_stock_features()
@@ -386,9 +397,71 @@ def get_margin_pool_df(tickers, macro_df, force_rebuild=False):
     return pool
 
 
-def get_full_macro_pool_df(force_rebuild=False):
-    """POOL_MACRO_FEATURE_COLS(VIX/USDJPY/日経5日/TOPIX5日/市場ボラregime)を全部追加した
-    macro_dfを返す(load_macro_slim5のNK225版をベースに追加)。"""
+def _compute_market_breadth(tickers, calendar_index):
+    """POOL_BREADTH_FEATURE_COLS(市場breadth系5特徴量)を、universe_bars.parquetの
+    生OHLCVを全銘柄分ループして横断的に集計し、calendar_indexに合わせたdfとして返す
+    (2026-09-21追加)。個別銘柄のcompute_stock_features適用済みデータ(get_base_per_ticker_df)
+    は使わず生データから直接計算する——breadth指標はcompute_stock_features側の特徴量に
+    依存しないため、こちらの方が依存関係が単純になる。"""
+    universe_bars = pd.read_parquet(UNIVERSE_BARS_CACHE_PATH)
+    universe_bars.index = pd.to_datetime(universe_bars.index).tz_localize(None)
+
+    above_ma25, new_high20, new_low20, breakout_mag, turnover = {}, {}, {}, {}, {}
+    for t in tickers:
+        if t not in universe_bars.columns.get_level_values(0):
+            continue
+        sub = universe_bars[t][['Close', 'High', 'Low', 'Volume']].dropna(subset=['Close'])
+        if len(sub) < 30:
+            continue
+        close, high, low, vol = sub['Close'], sub['High'], sub['Low'], sub['Volume']
+
+        ma25 = close.rolling(25).mean()
+        above_ma25[t] = (close > ma25).astype(float).where(ma25.notna())
+
+        prior_high20 = high.shift(1).rolling(20).max()
+        prior_low20 = low.shift(1).rolling(20).min()
+        new_high20[t] = (close > prior_high20).astype(float).where(prior_high20.notna())
+        new_low20[t] = (close < prior_low20).astype(float).where(prior_low20.notna())
+
+        raw = np.where(close > prior_high20, close / prior_high20 - 1.0,
+                        np.where(close < prior_low20, close / prior_low20 - 1.0, 0.0))
+        breakout_mag[t] = pd.Series(raw, index=sub.index).where(prior_high20.notna() & prior_low20.notna())
+
+        turnover[t] = close * vol
+
+    above_ma25_df = pd.DataFrame(above_ma25)
+    new_high20_df = pd.DataFrame(new_high20)
+    new_low20_df = pd.DataFrame(new_low20)
+    breakout_df = pd.DataFrame(breakout_mag)
+    turnover_df = pd.DataFrame(turnover)
+
+    def _ratio(bool_df):
+        n_valid = bool_df.notna().sum(axis=1).replace(0, np.nan)
+        return (bool_df.sum(axis=1) / n_valid)
+
+    def _align(s, fill_value):
+        combined = s.reindex(calendar_index.union(s.index)).sort_index().ffill()
+        return combined.reindex(calendar_index).fillna(fill_value)
+
+    result = pd.DataFrame(index=calendar_index)
+    result['market_above_ma25_ratio'] = _align(_ratio(above_ma25_df), 0.5)
+    result['market_newhigh20_ratio'] = _align(_ratio(new_high20_df), 0.0)
+    result['market_newlow20_ratio'] = _align(_ratio(new_low20_df), 0.0)
+    result['market_breakout_score'] = _align(breakout_df.mean(axis=1), 0.0)
+
+    daily_turnover_5d = turnover_df.sum(axis=1).rolling(5).mean()
+    tv_mean60 = daily_turnover_5d.rolling(60, min_periods=20).mean()
+    tv_std60 = daily_turnover_5d.rolling(60, min_periods=20).std() + 1e-7
+    result['market_turnover_z'] = _align((daily_turnover_5d - tv_mean60) / tv_std60, 0.0)
+
+    return result
+
+
+def get_full_macro_pool_df(tickers, force_rebuild=False):
+    """POOL_MACRO_FEATURE_COLS(VIX/USDJPY/日経5日/TOPIX5日/市場ボラregime)+
+    POOL_BREADTH_FEATURE_COLS(市場breadth系5特徴量)を全部追加したmacro_dfを返す
+    (load_macro_slim5のNK225版をベースに追加)。tickersは市場breadth特徴量の集計対象
+    ユニバース(通常はUNIVERSE_PATHの150銘柄)。"""
     if not force_rebuild and os.path.exists(MACRO_POOL_CACHE_PATH):
         with open(MACRO_POOL_CACHE_PATH, "rb") as f:
             cached = pickle.load(f)
@@ -436,6 +509,10 @@ def get_full_macro_pool_df(force_rebuild=False):
     macro_df['cta_net_norm_x_low'] = macro_df['cta_net_norm'] * is_low
     macro_df['market_vol_regime_x_high'] = macro_df['market_vol_regime'] * is_high
     macro_df['usdjpy_chg_x_low'] = macro_df['usdjpy_chg'] * is_low
+
+    breadth_df = _compute_market_breadth(tickers, macro_df.index)
+    for c in POOL_BREADTH_FEATURE_COLS:
+        macro_df[c] = breadth_df[c]
 
     with open(MACRO_POOL_CACHE_PATH, "wb") as f:
         pickle.dump(macro_df, f)

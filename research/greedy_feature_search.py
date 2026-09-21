@@ -28,6 +28,9 @@ LABEL_MODE等)はすべてstage3_toggle_experiment.pyの現在の値をそのま
     python greedy_feature_search.py                  # 全候補、改善マージン0
     python greedy_feature_search.py --margin 0.01     # 改善マージンを設定(seedノイズ対策)
     python greedy_feature_search.py --max-concurrent 8
+    python greedy_feature_search.py --candidates market_above_ma25_ratio,market_turnover_z
+                                                       # 候補プールを指定した特徴量だけに絞る
+                                                       # (既存の全FEATURE_TOGGLES再検証を避けたい場合)
 """
 import sys
 import os
@@ -73,7 +76,7 @@ def build_shared_pools(m):
     pool = m.get_full_feature_pool_df(tickers, macro_df)
     margin_pool = m.get_margin_pool_df(tickers, macro_df)
     sector_pool = m.get_sector_relative_pool_df(tickers, macro_df)
-    macro_pool_df = augment_macro_pool_df_all(m, m.get_full_macro_pool_df())
+    macro_pool_df = augment_macro_pool_df_all(m, m.get_full_macro_pool_df(tickers))
     loss_regime_labels = m.compute_regime_labels_expanding(macro_pool_df) if m.USE_REGIME_AWARE_LOSS else None
 
     _base_per_ticker = m.build_per_ticker(pool, margin_pool, sector_pool, macro_pool_df, m.BASELINE_STOCK_COLS)
@@ -165,7 +168,7 @@ def load_baseline_reference(m, pss, pool_base, tr0, va0, shared_split_date, max_
     return models, pf, n
 
 
-def run_greedy_search(margin=0.0, max_concurrent=10):
+def run_greedy_search(margin=0.0, max_concurrent=10, candidates=None):
     import torch
     import pandas as pd
     import stage3_toggle_experiment as m
@@ -186,7 +189,8 @@ def run_greedy_search(margin=0.0, max_concurrent=10):
 
     selected_stock = list(m.BASELINE_STOCK_COLS)
     selected_macro = list(m.BASELINE_MACRO_COLS)
-    remaining = [f for f in m.FEATURE_TOGGLES if f not in selected_stock and f not in selected_macro]
+    candidate_pool = candidates if candidates is not None else list(m.FEATURE_TOGGLES)
+    remaining = [f for f in candidate_pool if f not in selected_stock and f not in selected_macro]
     m.log(f"[greedy] 候補プール: {len(remaining)}個 -> {remaining}")
 
     history = [dict(round=0, candidate="(baseline)", side=None, pf=reference_pf, reference_pf=reference_pf,
@@ -288,7 +292,7 @@ def _save_history(history):
 
 
 if __name__ == "__main__":
-    margin_arg, max_concurrent_arg = 0.0, 10
+    margin_arg, max_concurrent_arg, candidates_arg = 0.0, 10, None
     args = sys.argv[1:]
     i = 0
     while i < len(args):
@@ -296,6 +300,8 @@ if __name__ == "__main__":
             margin_arg = float(args[i + 1]); i += 2
         elif args[i] == "--max-concurrent":
             max_concurrent_arg = int(args[i + 1]); i += 2
+        elif args[i] == "--candidates":
+            candidates_arg = args[i + 1].split(","); i += 2
         else:
             i += 1
-    run_greedy_search(margin=margin_arg, max_concurrent=max_concurrent_arg)
+    run_greedy_search(margin=margin_arg, max_concurrent=max_concurrent_arg, candidates=candidates_arg)

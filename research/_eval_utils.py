@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 
 MIN_RELIABLE_N = 30        # score上位K件のうち実際に約定した件数がこれ未満なら「少数トレードへの偏り」警告を出す
-COMMON_SAMPLE_K = 200      # score(=p_win-p_stop)上位k件を主要な評価サンプルとする
+COMMON_SAMPLE_K = 200      # score(呼び出し側定義、既定はEV_WIN_WEIGHT*p_win-EV_STOP_WEIGHT*p_stop。
+                           # stage3_toggle_experiment.py参照)上位k件を主要な評価サンプルとする
 MAX_CONCURRENT_POSITIONS = 20  # MaxDD計算用の資金曲線シミュレーション、同時保有上限(均等配分)
 
 REGIME_ID_MAP = {'LOW': 0, 'MID': 1, 'HIGH': 2}
@@ -250,8 +251,10 @@ def evaluate(d_all, label, print_detail=True, min_reliable_n=MIN_RELIABLE_N,
     9指標に対応、その後複数回の指摘で改修)。
 
     「全期間score上位common_sample_k件」を候補として選ぶ(p_winは絶対確率として校正
-    されていないことをcalibration checkで確認済みのため、固定閾値ではなくscore=
-    p_win-p_stopのランキングで選ぶ)。同点処理は決定論的(2026-09-19、ユーザー指摘
+    されていないことをcalibration checkで確認済みのため、固定閾値ではなくscore
+    (呼び出し側定義、既定はEV_WIN_WEIGHT*p_win-EV_STOP_WEIGHT*p_stop=本番のev_scoreと
+    同じ2:1重み。stage3_toggle_experiment.py参照)のランキングで選ぶ)。
+    同点処理は決定論的(2026-09-19、ユーザー指摘
     「Top-K同点処理を決定論的にする」): score降順→ticker昇順→date昇順で明示的に
     ソートしてから先頭K件を取る(pandas nlargestのkeep='first'は入力行順という
     暗黙の基準に依存するため)。

@@ -42,6 +42,7 @@ import os
 import time
 import pickle
 import subprocess
+import numpy as np
 
 # ============================================================
 # 複数worker実行時のCPU過剰並列を防止
@@ -68,6 +69,200 @@ DEFAULT_SEEDS = [42, 43, 44, 45, 46]
 DEFAULT_MAX_CONCURRENT = 5
 RESULTS_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sweep_results_log.parquet")
 
+# ============================================================
+# worker共有データのmemmap化
+# ============================================================
+_DATASET_ARRAY_NAMES = (
+    "x_s",
+    "x_m",
+    "y",
+    "tid",
+    "tidx",
+    "regime",
+)
+
+def _save_dataset_as_npy(array_dir, dataset_name, dataset):
+    """dataset内のNumPy配列を個別の.npyとして保存する。
+
+    dataset:
+        build_dataset()が返す6要素tuple
+        (x_s, x_m, y, tid, tidx, regime)
+
+    戻り値はpickleへ保存可能な小さいメタデータだけ。
+    dtypeは変更せず、既存学習との数値的一致を維持する。
+    """
+    if len(dataset) != len(_DATASET_ARRAY_NAMES):
+        raise ValueError(
+            f"{dataset_name}: dataset要素数が不正です。"
+            f"expected={len(_DATASET_ARRAY_NAMES)}, actual={len(dataset)}"
+        )
+
+    os.makedirs(array_dir, exist_ok=True)
+    arrays_meta = {}
+
+    for array_name, array in zip(_DATASET_ARRAY_NAMES, dataset):
+        array = np.asarray(array)
+
+        # mmapから読み出した後のtorch.tensor変換を安定させるため、
+        # ディスク保存時点でC-contiguousへ揃える。
+        # dtype自体は一切変更しない。
+        if not array.flags.c_contiguous:
+            array = np.ascontiguousarray(array)
+
+        filename = f"{dataset_name}_{array_name}.npy"
+        path = os.path.join(array_dir, filename)
+
+        # allow_pickle=Falseにより、純粋なNumPy配列だけを保存する。
+        np.save(path, array, allow_pickle=False)
+
+        arrays_meta[array_name] = {
+            "path": os.path.abspath(path),
+            "shape": tuple(array.shape),
+            "dtype": str(array.dtype),
+        }
+
+    return {
+        "__storage__": "numpy_memmap",
+        "arrays": arrays_meta,
+    }
+
+
+def _load_dataset_from_npy(dataset_meta):
+    """_save_dataset_as_npy()で保存したdatasetをread-only memmapとして開く。"""
+    if dataset_meta.get("__storage__") != "numpy_memmap":
+        raise ValueError(
+            "共有データの形式がnumpy_memmapではありません。"
+            "古いshared_data.pklが残っている可能性があります。"
+        )
+
+    result = []
+
+    for array_name in _DATASET_ARRAY_NAMES:
+        array_meta = dataset_meta["arrays"][array_name]
+        path = array_meta["path"]
+
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"共有memmap配列が見つかりません: {path}"
+            )
+
+        array = np.load(
+            path,
+            mmap_mode="r",
+            allow_pickle=False,
+        )
+
+        expected_shape = tuple(array_meta["shape"])
+        expected_dtype = np.dtype(array_meta["dtype"])
+
+        if tuple(array.shape) != expected_shape:
+            raise RuntimeError(
+                f"{path}: shape不一致 "
+                f"expected={expected_shape}, actual={array.shape}"
+            )
+
+        if array.dtype != expected_dtype:
+            raise RuntimeError(
+                f"{path}: dtype不一致 "
+                f"expected={expected_dtype}, actual={array.dtype}"
+            )
+
+        result.append(array)
+
+    return tuple(result)
+
+
+def dump_shared_training_data(shared_data_path, shared):
+    """tr_*/va_*配列を.npyへ分離し、pickleにはメタデータだけを保存する。
+
+    sharedの例:
+        {
+            "tr_base": tr0,
+            "va_base": va0,
+            "s_cols_base": [...],
+            "m_cols_base": [...],
+            "tr_test": tr1,
+            "va_test": va1,
+            "s_cols_test": [...],
+            "m_cols_test": [...],
+        }
+    """
+    array_dir = os.path.join(
+        os.path.dirname(os.path.abspath(shared_data_path)),
+        "shared_arrays",
+    )
+    os.makedirs(array_dir, exist_ok=True)
+
+    serialized = {
+        "__format_version__": 1,
+        "__storage__": "numpy_memmap",
+    }
+
+    for key, value in shared.items():
+        if key.startswith("tr_") or key.startswith("va_"):
+            serialized[key] = _save_dataset_as_npy(
+                array_dir=array_dir,
+                dataset_name=key,
+                dataset=value,
+            )
+        else:
+            serialized[key] = value
+
+    tmp_path = shared_data_path + ".tmp"
+
+    with open(tmp_path, "wb") as f:
+        pickle.dump(
+            serialized,
+            f,
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
+
+    # workerが保存途中のpickleを読むことを防ぐ。
+    os.replace(tmp_path, shared_data_path)
+
+
+def load_shared_training_config(shared_data_path, config_label):
+    """指定configのtrain/validation配列と特徴量リストを読み込む。"""
+    with open(shared_data_path, "rb") as f:
+        shared = pickle.load(f)
+
+    if shared.get("__storage__") != "numpy_memmap":
+        raise RuntimeError(
+            f"{shared_data_path}はmemmap形式ではありません。"
+            "dump_shared_training_data()で作り直してください。"
+        )
+
+    required_keys = (
+        f"tr_{config_label}",
+        f"va_{config_label}",
+        f"s_cols_{config_label}",
+        f"m_cols_{config_label}",
+    )
+
+    missing = [
+        key
+        for key in required_keys
+        if key not in shared
+    ]
+
+    if missing:
+        raise KeyError(
+            f"共有データに必要なキーがありません: {missing}"
+        )
+
+    tr_data = _load_dataset_from_npy(
+        shared[f"tr_{config_label}"]
+    )
+    va_data = _load_dataset_from_npy(
+        shared[f"va_{config_label}"]
+    )
+
+    return (
+        tr_data,
+        va_data,
+        shared[f"s_cols_{config_label}"],
+        shared[f"m_cols_{config_label}"],
+    )
 
 def _build_data():
     """stage3_toggle_experiment.pyの現在の設定でbaseline(既存14固定)のdataset/backtest_poolを
@@ -81,7 +276,7 @@ def _build_data():
     pool = m.get_full_feature_pool_df(tickers, macro_df)
     margin_pool = m.get_margin_pool_df(tickers, macro_df)
     sector_pool = m.get_sector_relative_pool_df(tickers, macro_df)
-    macro_pool_df = m.augment_macro_pool_df(m.get_full_macro_pool_df())
+    macro_pool_df = m.augment_macro_pool_df(m.get_full_macro_pool_df(tickers))
 
     loss_regime_labels = m.compute_regime_labels_expanding(macro_pool_df) if m.USE_REGIME_AWARE_LOSS else None
 
@@ -125,6 +320,19 @@ def worker_train_only(config_label, seed, shared_data_path, out_state_path):
     va0 = shared[f"va_{config_label}"]
     s_cols = shared[f"s_cols_{config_label}"]
     m_cols = shared[f"m_cols_{config_label}"]
+    tr0, va0, s_cols, m_cols = load_shared_training_config(
+        shared_data_path,
+        config_label,
+    )
+
+    train_bytes = sum(arr.nbytes for arr in tr0)
+    val_bytes = sum(arr.nbytes for arr in va0)
+    print(
+        f"[worker {config_label} seed={seed}] "
+        f"memmap load: train={train_bytes / 1024**2:.1f}MB "
+        f"val={val_bytes / 1024**2:.1f}MB",
+        flush=True,
+    )
 
     t0 = time.time()
     model = m.train_model(seed, tr0, va0, s_cols, m_cols, f"parallel_sweep({config_label},seed={seed})")
@@ -135,6 +343,8 @@ def worker_train_only(config_label, seed, shared_data_path, out_state_path):
     # 改良点6: workerプロセス終了時にも明示的に解放しておく(プロセス終了自体でも
     # OS側は回収するが、同一プロセスが複数モデルを扱う設計に将来変わっても安全なように)。
     del model
+    del tr0
+    del va0
     torch.cuda.empty_cache()
 
 
@@ -200,6 +410,24 @@ def run_parallel_sweep(seeds=None, max_concurrent=DEFAULT_MAX_CONCURRENT):
     with open(shared_data_path, "wb") as f:
         pickle.dump({"tr_base": tr0, "va_base": va0, "s_cols_base": m.BASELINE_STOCK_COLS,
                      "m_cols_base": m.BASELINE_MACRO_COLS}, f)
+    dump_shared_training_data(
+        shared_data_path,
+        {
+            "tr_base": tr0,
+            "va_base": va0,
+            "s_cols_base": m.BASELINE_STOCK_COLS,
+            "m_cols_base": m.BASELINE_MACRO_COLS,
+        },
+    )
+
+    shared_pickle_mb = (
+        os.path.getsize(shared_data_path) / 1024**2
+    )
+    print(
+        f"[+] worker共有データをmemmap化しました。"
+        f"メタデータpickle={shared_pickle_mb:.3f}MB",
+        flush=True,
+    )
 
     seed_and_paths = [(s, shared_data_path, os.path.join(tmpdir, f"state_{s}.pt")) for s in seeds]
     jobs = [("base", s, shared_data_path, out_path) for s, _, out_path in seed_and_paths]
@@ -270,8 +498,12 @@ def run_parallel_sweep(seeds=None, max_concurrent=DEFAULT_MAX_CONCURRENT):
     try:
         import shutil
         shutil.rmtree(tmpdir)
-    except Exception:
-        pass
+    except Exception as e:
+        print(
+            f"[!] 一時ディレクトリを削除できませんでした: "
+            f"{tmpdir} ({type(e).__name__}: {e})",
+            flush=True,
+        )
 
     return dict(daily_pfs=daily_pfs, ensemble_pf=r_ens['pf'], train_elapsed=train_elapsed,
                 total_elapsed=total_elapsed)
