@@ -138,18 +138,25 @@ def worker_train_only(config_label, seed, shared_data_path, out_state_path):
     torch.cuda.empty_cache()
 
 
-def run_jobs_parallel(jobs, script_path, max_concurrent):
+def run_jobs_parallel(jobs, script_path, max_concurrent, max_retries=1):
     """改良点2: ローリングプール方式で同時起動数をmax_concurrentに制限する
     (枠が空き次第、すぐ次のジョブを起動する——固定バッチ単位で待つより効率的)。
 
     jobs: [(config_label, seed, shared_data_path, out_state_path), ...] のリスト。
     stage3_toggle_experiment.py::__main__からも直接importして呼べる汎用関数
-    (base/test×seedsを1個のフラットなjobリストとして渡せば、両方まとめて並列学習できる)。"""
-    pending = list(jobs)
-    running = []  # [((config_label, seed), proc), ...]
+    (base/test×seedsを1個のフラットなjobリストとして渡せば、両方まとめて並列学習できる)。
+
+    2026-09-21追加、2点の頑健化: (1) 新規ジョブ起動の間に短いstagger(0.15秒)を入れる——
+    10プロセスが完全に同時にCUDA初期化しようとすると、ごく稀に"CUDA error: CUDA-capable
+    device(s) is/are busy or unavailable"が発生することを確認した(1回目・2回目の185ジョブ
+    起動直後にそれぞれ1件ずつ発生)。(2) max_retries回まで自動リトライする——上記エラーは
+    再実行すればほぼ確実に成功する一時的な競合であり、185ジョブ中1件の一時的な失敗で
+    数十分〜数時間分の学習結果を丸ごと破棄するのは非効率なため。"""
+    pending = [(job, max_retries) for job in jobs]
+    running = []  # [((config_label, seed), proc, job, retries_left), ...]
     while pending or running:
         while pending and len(running) < max_concurrent:
-            config_label, seed, shared_data_path, out_state_path = pending.pop(0)
+            (config_label, seed, shared_data_path, out_state_path), retries_left = pending.pop(0)
             # PYTHONDONTWRITEBYTECODE=1: 複数workerが同時にstage3_toggle_experiment.pyを
             # 初回importすると、.pycバイトコードキャッシュの書き込みが競合し、ごく稀に
             # 古い/不整合なキャッシュを読み込んだworkerが誤ったモデル形状(hidden_dim等)で
@@ -158,16 +165,24 @@ def run_jobs_parallel(jobs, script_path, max_concurrent):
             worker_env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
             proc = subprocess.Popen([sys.executable, script_path, WORKER_FLAG, config_label, str(seed),
                                       shared_data_path, out_state_path], env=worker_env)
-            running.append(((config_label, seed), proc))
+            running.append(((config_label, seed), proc, (config_label, seed, shared_data_path, out_state_path),
+                             retries_left))
+            time.sleep(0.15)  # CUDA初期化の一斉競合を避けるstagger
         still_running = []
-        for key, proc in running:
+        for key, proc, job, retries_left in running:
             ret = proc.poll()
             if ret is None:
-                still_running.append((key, proc))
+                still_running.append((key, proc, job, retries_left))
             elif ret != 0:
-                raise RuntimeError(f"{key}のworkerプロセスが異常終了しました(exit code {ret})")
-        if len(still_running) == len(running):
-            time.sleep(0.5)  # 誰も完了していなければ少し待つ(ビジーループ回避)
+                if retries_left > 0:
+                    print(f"[!] {key}のworkerプロセスが異常終了(exit code {ret})、リトライします"
+                          f"(残り{retries_left}回)", flush=True)
+                    pending.append((job, retries_left - 1))
+                else:
+                    raise RuntimeError(f"{key}のworkerプロセスが異常終了しました(exit code {ret}、"
+                                        f"リトライも失敗)")
+        if len(still_running) == len(running) and not (pending and len(running) < max_concurrent):
+            time.sleep(0.5)  # 誰も完了しておらず新規起動枠も無ければ少し待つ(ビジーループ回避)
         running = still_running
 
 

@@ -83,9 +83,17 @@ class PreLN_CrossAttentionBlock(nn.Module):
 
 class DualStream_GRU_PreLN_Transformer(nn.Module):
     def __init__(self, stock_dim=5, macro_dim=5, hidden_dim=20, num_heads=1, num_classes=3, dropout=0.2,
-                 use_cross_ffn=False, use_final_norm=False, num_self_attn_layers=1, seq_len=10):
+                 use_cross_ffn=False, use_final_norm=False, num_self_attn_layers=1, seq_len=10,
+                 num_sectors=0, sector_embed_dim=0):
         super().__init__()
-        self.stock_gru = nn.GRU(stock_dim, hidden_dim, batch_first=True, num_layers=1)
+        # num_sectors>0で銘柄のセクターidをnn.Embeddingで学習し、pooling後の特徴に結合する
+        # (2026-09-21追加、ユーザー提案「銘柄とかセクターでembeddingするのはどうかな」)。
+        # 呼び出し側(stage3_toggle_experiment.py)がx_stockの最終列にsector_id(全時点で
+        # 定数値)を埋め込んで渡してくる前提——forward()で切り離してから残りをGRUに渡す。
+        # num_sectors=0(既定)なら従来通りの挙動・パラメータ構造・チェックポイント互換性を維持する。
+        self.num_sectors = num_sectors
+        gru_stock_dim = stock_dim - 1 if num_sectors > 0 else stock_dim
+        self.stock_gru = nn.GRU(gru_stock_dim, hidden_dim, batch_first=True, num_layers=1)
         self.macro_gru = nn.GRU(macro_dim, hidden_dim, batch_first=True, num_layers=1)
 
         self.stock_encoder = PreLN_SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dim_ff=32, dropout=dropout)
@@ -113,14 +121,24 @@ class DualStream_GRU_PreLN_Transformer(nn.Module):
         if use_final_norm:
             self.final_norm = nn.LayerNorm(hidden_dim)
 
+        if num_sectors > 0:
+            self.sector_embed = nn.Embedding(num_sectors, sector_embed_dim)
+            classifier_in_dim = hidden_dim + sector_embed_dim
+        else:
+            classifier_in_dim = hidden_dim
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, 16),
+            nn.Linear(classifier_in_dim, 16),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(16, num_classes)
         )
 
     def forward(self, x_stock, x_macro):
+        if self.num_sectors > 0:
+            # 全時点で定数値のはずなので先頭時点だけ読めば良い(呼び出し側の埋め込み方に依存)。
+            sector_id = x_stock[:, 0, -1].long()
+            x_stock = x_stock[:, :, :-1]
+
         h_s, _ = self.stock_gru(x_stock)
         h_m, _ = self.macro_gru(x_macro)
 
@@ -135,6 +153,8 @@ class DualStream_GRU_PreLN_Transformer(nn.Module):
         if self.use_final_norm:
             fused = self.final_norm(fused)
         pooled = self.pool(fused)
+        if self.num_sectors > 0:
+            pooled = torch.cat([pooled, self.sector_embed(sector_id)], dim=-1)
         return self.classifier(pooled)
 
 
