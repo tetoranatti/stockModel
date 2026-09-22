@@ -140,7 +140,7 @@ CROSS_ATTN_USE_FFN = False
 NUM_SELF_ATTN_LAYERS = 1
 
 # 銘柄のTSE33業種をnn.Embeddingで学習し、pooling後の特徴に結合するか
-USE_SECTOR_EMBEDDING = False
+USE_SECTOR_EMBEDDING = True
 SECTOR_EMBED_DIM = 4
 
 # 「共通評価サンプル上のPF」: p_win上位k件でPFを見る補助指標
@@ -222,3 +222,12 @@ MACRO_CLIP = None
 
 # 両方とも短くするほど安定性ともに改善したため
 SEQ_LEN, HOLDING_PERIOD = 5, 5
+
+# TOPN件からセクター制限内での選択
+MAX_PER_SECTOR = 3
+
+REGIME_ID_MAP = {
+    "LOW": 0,
+    "MID": 1,
+    "HIGH": 2,
+}

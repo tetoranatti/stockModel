@@ -14,16 +14,6 @@ from _feature_cache_utils import (
     get_margin_pool_df,
     get_sector_relative_pool_df,
 )
-from _eval_utils import (
-    compute_is_low_regime_filter,
-    compute_is_high_regime_filter,
-    compute_is_mid_regime_filter,
-    compute_regime_labels,
-    compute_regime_labels_expanding,
-    regime_breakdown,
-    evaluate,
-    evaluate_daily_topn,
-)
 from training.train_model_v8_exp import UNIVERSE_PATH, MIN_CROSS_SECTION
 from .config import *
 from .runtime import DEVICE, log
@@ -391,7 +381,9 @@ def run_experiment():
     print("【TOPN別PF分析】")
     print("=" * 90)
 
-    topn_df = evaluate_topn_curve(d_test_ens, topn_list=[1, 3, 5, 10, 20, 30], max_per_sector=2)
+    topn_df = evaluate_topn_curve(
+        d_test_ens, topn_list=[1, 3, 5, 10, 20, 30], max_per_sector=MAX_PER_SECTOR
+    )
 
     print(topn_df.to_string(index=False))
 
@@ -404,99 +396,6 @@ def run_experiment():
     print("【月別 × TopN PF】")
     print("=" * 90)
     print(monthly_topn_df.to_string())
-
-    july_detail = daily_detail_for_month(
-        d_test_ens,
-        target_month="2026-07",
-        top_n=5,
-    )
-
-    print(july_detail.to_string())
-
-    july_top5_overlap = evaluate_daily_topn_overlap(
-        d_test_ens,
-        top_n=5,
-        lookback_days=5,
-        target_month="2026-07",
-    )
-
-    display_cols = [
-        "date",
-        "tickers",
-        "previous_overlap_count",
-        "previous_overlap_ratio",
-        "lookback_overlap_count",
-        "lookback_overlap_ratio",
-        "avg_score",
-        "avg_ret",
-        "win_rate",
-        "pf",
-    ]
-
-    print("\n" + "=" * 120)
-    print("【2026年7月 日別Top5重複率】")
-    print("=" * 120)
-
-    print(
-        july_top5_overlap[display_cols].to_string(
-            index=False,
-            formatters={
-                "date": lambda x: x.strftime("%Y-%m-%d"),
-                "previous_overlap_ratio": "{:.1%}".format,
-                "lookback_overlap_ratio": "{:.1%}".format,
-                "avg_score": "{:.4f}".format,
-                "avg_ret": "{:.4f}".format,
-                "win_rate": "{:.1%}".format,
-                "pf": lambda x: ("inf" if np.isinf(x) else f"{x:.3f}"),
-            },
-        )
-    )
-
-    overlap_performance = (
-        july_top5_overlap.assign(
-            overlap_bucket=pd.cut(
-                july_top5_overlap["lookback_overlap_ratio"],
-                bins=[-0.01, 0.20, 0.40, 0.60, 0.80, 1.00],
-                labels=[
-                    "0-20%",
-                    "21-40%",
-                    "41-60%",
-                    "61-80%",
-                    "81-100%",
-                ],
-            )
-        )
-        .groupby(
-            "overlap_bucket",
-            observed=True,
-        )
-        .agg(
-            days=("date", "size"),
-            avg_ret=("avg_ret", "mean"),
-            positive_days=(
-                "avg_ret",
-                lambda x: int((x > 0).sum()),
-            ),
-            avg_score=("avg_score", "mean"),
-        )
-        .reset_index()
-    )
-
-    overlap_performance["positive_day_rate"] = (
-        overlap_performance["positive_days"] / overlap_performance["days"]
-    )
-
-    print("\n【過去5取引日との重複率別成績】")
-    print(
-        overlap_performance.to_string(
-            index=False,
-            formatters={
-                "avg_ret": "{:.4f}".format,
-                "avg_score": "{:.4f}".format,
-                "positive_day_rate": "{:.1%}".format,
-            },
-        )
-    )
 
     # score(=EV_WIN_WEIGHT*p_win-EV_STOP_WEIGHT*p_stop、本番のev_scoreと同じ2:1重み)
     # 上位K件で選ぶ。決定論的tie-break(evaluate()と同じ基準: score降順→ticker昇順→date昇順)

@@ -9,7 +9,7 @@ from modules.cross_sectional_features import (
     valid_cross_section_dates,
     normalize_cross_sectional,
 )
-from _eval_utils import REGIME_ID_MAP
+
 from .config import (
     SEQ_LEN,
     HOLDING_PERIOD,
@@ -23,6 +23,7 @@ from .config import (
     RISK_BLEND_RANK_WEIGHT,
     MACRO_CLIP,
     USE_SECTOR_EMBEDDING,
+    REGIME_ID_MAP,
 )
 from .feature_catalog import (
     FEATURE_CATALOG,
