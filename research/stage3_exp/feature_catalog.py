@@ -7,9 +7,7 @@ from .config import BASE_MACRO_COLS, FEATURE_TOGGLES
 
 _SECTOR_MAP_RAW = _load_sector_map()
 _SECTOR_NAMES_SORTED = sorted({v for v in _SECTOR_MAP_RAW.values() if v is not None})
-SECTOR_NAME_TO_ID = {
-    name: i + 1 for i, name in enumerate(_SECTOR_NAMES_SORTED)
-}
+SECTOR_NAME_TO_ID = {name: i + 1 for i, name in enumerate(_SECTOR_NAMES_SORTED)}
 TICKER_TO_SECTOR_ID = {
     t: SECTOR_NAME_TO_ID.get(v, 0) for t, v in _SECTOR_MAP_RAW.items()
 }

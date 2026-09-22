@@ -3,16 +3,38 @@
 import numpy as np
 import pandas as pd
 from training.train_model_v8_exp import MIN_CROSS_SECTION
-from modules.cross_sectional_features import (apply_log_transform, compute_cross_sectional_stats,
-    valid_cross_section_dates, normalize_cross_sectional)
+from modules.cross_sectional_features import (
+    apply_log_transform,
+    compute_cross_sectional_stats,
+    valid_cross_section_dates,
+    normalize_cross_sectional,
+)
 from _eval_utils import REGIME_ID_MAP
-from .config import (SEQ_LEN, HOLDING_PERIOD, LABEL_MODE, QUANTILE_LABEL_DOWN, QUANTILE_LABEL_UP,
-    RET5_HOLDING_DAYS, RET5_DOWN_THRESH, RET5_UP_THRESH, RISK_BLEND_Z_WEIGHT,
-    RISK_BLEND_RANK_WEIGHT, MACRO_CLIP, USE_SECTOR_EMBEDDING)
-from .feature_catalog import (FEATURE_CATALOG, MACRO_COMPUTE_FNS, STOCK_COMPUTE_FNS,
-    TEST_MACRO_COLS, BASELINE_MACRO_COLS, TICKER_TO_SECTOR_ID)
+from .config import (
+    SEQ_LEN,
+    HOLDING_PERIOD,
+    LABEL_MODE,
+    QUANTILE_LABEL_DOWN,
+    QUANTILE_LABEL_UP,
+    RET5_HOLDING_DAYS,
+    RET5_DOWN_THRESH,
+    RET5_UP_THRESH,
+    RISK_BLEND_Z_WEIGHT,
+    RISK_BLEND_RANK_WEIGHT,
+    MACRO_CLIP,
+    USE_SECTOR_EMBEDDING,
+)
+from .feature_catalog import (
+    FEATURE_CATALOG,
+    MACRO_COMPUTE_FNS,
+    STOCK_COMPUTE_FNS,
+    TEST_MACRO_COLS,
+    BASELINE_MACRO_COLS,
+    TICKER_TO_SECTOR_ID,
+)
 from .targets import compute_ret5_fixed_horizon_targets, compute_simulated_targets
 from .runtime import log
+
 
 def augment_macro_pool_df(macro_pool_df):
     """テスト側で使うmacro側computed特徴量をmacro_pool_dfに1回だけ追加する。"""
@@ -24,6 +46,7 @@ def augment_macro_pool_df(macro_pool_df):
         ):
             macro_pool_df[f] = MACRO_COMPUTE_FNS[f](macro_pool_df)
     return macro_pool_df
+
 
 def build_per_ticker(pool, margin_pool, sector_pool, macro_pool_df, stock_cols):
     """pool_df(既存9+株側候補20が常に列として存在)をベースに、stock_colsに含まれる
@@ -59,6 +82,7 @@ def build_per_ticker(pool, margin_pool, sector_pool, macro_pool_df, stock_cols):
             continue
     return per_ticker_df
 
+
 def compute_global_split_date(valid_dates, regime_filter=None):
     """train/valの分割を全銘柄共通のカレンダー日で行う(銘柄ごとの75%点だと分割日が
     最大約5.5ヶ月ずれ、out-of-sample性が銘柄間で一貫しなくなるため)。
@@ -71,6 +95,7 @@ def compute_global_split_date(valid_dates, regime_filter=None):
             return sorted_dates[-1] if len(sorted_dates) else pd.Timestamp.max
         return eligible_dates[int(len(eligible_dates) * 0.75)]
     return sorted_dates[int(len(sorted_dates) * 0.75)]
+
 
 def prepare_ticker_data(
     macro_cols,
@@ -111,6 +136,7 @@ def prepare_ticker_data(
         else compute_global_split_date(valid_dates, regime_filter)
     )
     return per_ticker_df, cross_mean, cross_std, valid_dates, global_split_date
+
 
 def build_dataset(
     macro_cols,
@@ -362,6 +388,7 @@ def build_dataset(
         np.array(va_tidx),
         np.array(va_regime),
     )
+
 
 def prepare_backtest_pool(
     macro_cols,

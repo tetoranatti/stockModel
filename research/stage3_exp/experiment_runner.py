@@ -8,11 +8,22 @@ import torch
 
 from modules.macro_features import load_macro_slim5
 from modules.cross_sectional_features import valid_cross_section_dates
-from _feature_cache_utils import (get_full_feature_pool_df, get_full_macro_pool_df,
-    get_margin_pool_df, get_sector_relative_pool_df)
-from _eval_utils import (compute_is_low_regime_filter, compute_is_high_regime_filter,
-    compute_is_mid_regime_filter, compute_regime_labels, compute_regime_labels_expanding,
-    regime_breakdown, evaluate, evaluate_daily_topn)
+from _feature_cache_utils import (
+    get_full_feature_pool_df,
+    get_full_macro_pool_df,
+    get_margin_pool_df,
+    get_sector_relative_pool_df,
+)
+from _eval_utils import (
+    compute_is_low_regime_filter,
+    compute_is_high_regime_filter,
+    compute_is_mid_regime_filter,
+    compute_regime_labels,
+    compute_regime_labels_expanding,
+    regime_breakdown,
+    evaluate,
+    evaluate_daily_topn,
+)
 from training.train_model_v8_exp import UNIVERSE_PATH, MIN_CROSS_SECTION
 from .config import *
 from .runtime import DEVICE, log
@@ -25,6 +36,7 @@ from .inference import run_backtest_inference, run_backtest_inference_ensemble
 from .diagnostics import *
 
 RESEARCH_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 def run_experiment():
     removed_from_baseline = (set(BASELINE_STOCK_COLS) | set(BASELINE_MACRO_COLS)) - set(
@@ -374,15 +386,12 @@ def run_experiment():
         max_concurrent=MAX_CONCURRENT_POSITIONS,
     )
 
-    #TOPN別PF分析 月毎のPFバラツキがTOPNのランキング分け能力の問題か確認する
+    # TOPN別PF分析 月毎のPFバラツキがTOPNのランキング分け能力の問題か確認する
     print("\n" + "=" * 90)
     print("【TOPN別PF分析】")
     print("=" * 90)
 
-    topn_df = evaluate_topn_curve(
-        d_test_ens,
-        topn_list=[1, 3, 5, 10, 20, 30]
-    )
+    topn_df = evaluate_topn_curve(d_test_ens, topn_list=[1, 3, 5, 10, 20, 30], max_per_sector=2)
 
     print(topn_df.to_string(index=False))
 
@@ -438,20 +447,15 @@ def run_experiment():
                 "avg_score": "{:.4f}".format,
                 "avg_ret": "{:.4f}".format,
                 "win_rate": "{:.1%}".format,
-                "pf": lambda x: (
-                    "inf" if np.isinf(x) else f"{x:.3f}"
-                ),
+                "pf": lambda x: ("inf" if np.isinf(x) else f"{x:.3f}"),
             },
         )
     )
 
     overlap_performance = (
-        july_top5_overlap
-        .assign(
+        july_top5_overlap.assign(
             overlap_bucket=pd.cut(
-                july_top5_overlap[
-                    "lookback_overlap_ratio"
-                ],
+                july_top5_overlap["lookback_overlap_ratio"],
                 bins=[-0.01, 0.20, 0.40, 0.60, 0.80, 1.00],
                 labels=[
                     "0-20%",
@@ -477,12 +481,11 @@ def run_experiment():
         )
         .reset_index()
     )
-    
+
     overlap_performance["positive_day_rate"] = (
-        overlap_performance["positive_days"]
-        / overlap_performance["days"]
+        overlap_performance["positive_days"] / overlap_performance["days"]
     )
-    
+
     print("\n【過去5取引日との重複率別成績】")
     print(
         overlap_performance.to_string(
