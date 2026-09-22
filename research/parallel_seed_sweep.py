@@ -62,7 +62,23 @@ try:
 except Exception:
     pass
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ============================================================
+# project import paths
+# ============================================================
+
+RESEARCH_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
+PROJECT_ROOT = os.path.dirname(
+    RESEARCH_DIR
+)
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+if RESEARCH_DIR not in sys.path:
+    sys.path.insert(0, RESEARCH_DIR)
 
 WORKER_FLAG = "--worker-train"
 DEFAULT_SEEDS = [42, 43, 44, 45, 46]
@@ -267,7 +283,7 @@ def load_shared_training_config(shared_data_path, config_label):
 def _build_data():
     """stage3_toggle_experiment.pyの現在の設定でbaseline(既存14固定)のdataset/backtest_poolを
     構築する。親プロセスが1回だけ呼ぶ(改良点1: 以前はworkerごとに冗長に呼んでいた)。"""
-    import stage3_toggle_experiment as m
+    import stage3_exp.experiment_context as m
 
     with open(m.UNIVERSE_PATH, "r", encoding="utf-8") as f:
         tickers = [line.strip() for line in f if line.strip()]
@@ -312,7 +328,7 @@ def worker_train_only(config_label, seed, shared_data_path, out_state_path):
         # 初期化後に呼ばれた場合に備える。
         pass
 
-    import stage3_toggle_experiment as m
+    import stage3_exp.experiment_context as m
 
     with open(shared_data_path, "rb") as f:
         shared = pickle.load(f)
