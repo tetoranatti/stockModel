@@ -387,6 +387,21 @@ def run_experiment():
 
     print(topn_df.to_string(index=False))
 
+    # 60日リターン相関クラスタ制約版(2026-09-23追加、業種制約版との比較用)
+    if TICKER_TO_CLUSTER:
+        print("\n" + "=" * 90)
+        print(f"【TOPN別PF分析(クラスタ制約 max_per_cluster={MAX_PER_CLUSTER}, "
+              f"N_CLUSTERS={N_CLUSTERS})】")
+        print("=" * 90)
+
+        topn_cluster_df = evaluate_topn_curve(
+            d_test_ens,
+            topn_list=[1, 3, 5, 10, 20, 30],
+            max_per_cluster=MAX_PER_CLUSTER,
+        )
+
+        print(topn_cluster_df.to_string(index=False))
+
     monthly_topn_df = monthly_topn_pf_matrix(
         d_test_ens,
         topn_list=[1, 3, 5, 10, 20, 30],

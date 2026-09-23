@@ -226,6 +226,30 @@ SEQ_LEN, HOLDING_PERIOD = 5, 5
 # TOPN件からセクター制限内での選択
 MAX_PER_SECTOR = 3
 
+# TOPN件からリターンベースのクラスタ制限内での選択(2026-09-23追加、ユーザー提案。
+# 業種分類より実際の値動きの共動性を反映した分散制約の候補として、セクター版と比較検証中)
+# "monthly_consensus": 1/5/20/60日の複数horizonリターン(横断面標準化)で月ごとにKMeans分け、
+#   複数月の一致度(consensus)で最終クラスタを決める(ユーザー提案、単月のノイズに
+#   左右されにくく、半導体テーマのような業種横断の連動も拾える)。1日・5日は月内複数時点
+#   サンプリング平均でノイズを抑える(cluster_utils.py::_monthly_feature_row)。
+#   データソースはfetch_cluster_universe_history.pyが作る約2年分の長期キャッシュ
+#   (data/cache/cluster_daily_bars_raw.parquet)を使う。無ければ直近6ヶ月版にフォールバック。
+# "static_corr": 60日リターン系列の相関一発で階層クラスタリング(初期実装)。
+CLUSTER_METHOD = "monthly_consensus"
+N_CLUSTERS = 10                        # 最終クラスタ数(シルエットスコアはk=2が最高だが
+                                        # ほぼ無意味な分割になるため、分散制約としての実用性
+                                        # を優先しk=10を採用、2026-09-23)
+N_MONTHLY_BUCKETS = 8                  # monthly_consensus専用: 月内を何グループに分けるか
+CLUSTER_RETURN_WINDOWS = (1, 5, 20, 60)  # monthly_consensus専用: 月内クラスタリングに使う複数horizon
+# 2026-09-23、ユーザー提案: 分散投資が本当に効いてほしいのは下落局面で一緒に沈む銘柄を
+# 避けたい場面なので、市場全体(横断面中央値)が下落した月だけでconsensusを取る。
+# 過去約25ヶ月中、下落月は10ヶ月のみだったためMIN_SHARED_MONTHSも5へ下げている。
+CLUSTER_MONTH_FILTER = "down"          # "down" / "up" / "all"
+CLUSTER_MARKET_RETURN_WINDOW = 20      # 月間パフォーマンス判定に使うhorizon
+MIN_SHARED_MONTHS = 5                  # monthly_consensus専用: consensus算出に必要な最小共通月数(下落月10ヶ月分中)
+CLUSTER_LOOKBACK_DAYS = 60             # static_corr専用: 相関を取るリターンの窓
+MAX_PER_CLUSTER = 2
+
 REGIME_ID_MAP = {
     "LOW": 0,
     "MID": 1,

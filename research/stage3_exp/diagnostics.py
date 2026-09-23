@@ -4,13 +4,39 @@ import numpy as np
 import pandas as pd
 
 from .config import (
+    CLUSTER_LOOKBACK_DAYS,
+    CLUSTER_MARKET_RETURN_WINDOW,
+    CLUSTER_METHOD,
+    CLUSTER_MONTH_FILTER,
+    CLUSTER_RETURN_WINDOWS,
     COMMON_SAMPLE_K,
     MAX_CONCURRENT_POSITIONS,
     MIN_RELIABLE_N,
+    MIN_SHARED_MONTHS,
+    N_CLUSTERS,
+    N_MONTHLY_BUCKETS,
 )
 from _feature_cache_utils import _load_sector_map
+from .cluster_utils import load_cluster_map
 
 TICKER_TO_SECTOR = _load_sector_map()
+try:
+    # prices_*.parquet(pipeline/build_jquants_cache.py出力)が無い環境でも
+    # セクター制約側の実験は動かせるよう、クラスタリングの失敗はここで握りつぶす。
+    TICKER_TO_CLUSTER = load_cluster_map(
+        method=CLUSTER_METHOD,
+        n_clusters=N_CLUSTERS,
+        lookback_days=CLUSTER_LOOKBACK_DAYS,
+        n_final_clusters=N_CLUSTERS,
+        n_monthly_clusters=N_MONTHLY_BUCKETS,
+        return_windows=CLUSTER_RETURN_WINDOWS,
+        min_shared_months=MIN_SHARED_MONTHS,
+        month_filter=CLUSTER_MONTH_FILTER,
+        market_return_window=CLUSTER_MARKET_RETURN_WINDOW,
+    )
+except FileNotFoundError as e:
+    print(f"[!] クラスタマップの読み込みに失敗しました(cluster制約は使えません): {e}")
+    TICKER_TO_CLUSTER = {}
 
 
 def calc_pf(data):
@@ -430,11 +456,33 @@ def evaluate_topn_curve(
     df,
     topn_list=(1, 3, 5, 10, 20, 30),
     max_per_sector=None,
+    max_per_cluster=None,
 ):
+    """max_per_clusterを指定すると業種制約の代わりに60日リターン相関ベースのクラスタ制約
+    (select_topn_with_cluster_limit)を使う。max_per_sector/max_per_clusterの同時指定は
+    想定していない(クラスタ優先)——業種版とクラスタ版を同じtopn_listで別々に呼び出し、
+    結果を比較する使い方を想定。"""
     rows = []
 
     for top_n in topn_list:
-        if max_per_sector is None:
+        if max_per_cluster is not None:
+            # クラスタ上限制御あり(2026-09-23追加)
+            selected_parts = []
+
+            for _, day_df in df.groupby("date", sort=False):
+                day_selected = select_topn_with_cluster_limit(
+                    day_df,
+                    top_n=top_n,
+                    max_per_cluster=max_per_cluster,
+                )
+                selected_parts.append(day_selected)
+
+            selected = (
+                pd.concat(selected_parts, ignore_index=True)
+                if selected_parts
+                else df.iloc[:0].copy()
+            )
+        elif max_per_sector is None:
             # 従来のベースライン
             selected = (
                 df.sort_values(
@@ -476,6 +524,7 @@ def evaluate_topn_curve(
             {
                 "top_n": top_n,
                 "max_per_sector": max_per_sector,
+                "max_per_cluster": max_per_cluster,
                 "trades": len(selected),
                 "pf": calc_pf(selected["ret_pct"]),
                 "avg_ret": selected["ret_pct"].mean(),
@@ -768,6 +817,67 @@ def select_topn_with_sector_limit(
 
         selected_indices.append(idx)
         sector_counts[sector] = sector_counts.get(sector, 0) + 1
+
+        if len(selected_indices) >= top_n:
+            break
+
+    if not selected_indices:
+        return ordered.iloc[:0].copy()
+
+    return ordered.loc[selected_indices].copy()
+
+
+def select_topn_with_cluster_limit(
+    day_df,
+    top_n=10,
+    max_per_cluster=2,
+):
+    """日次候補から、1クラスタ(60日リターン相関ベース、cluster_utils.py)当たりの
+    採用上限を適用してTop-Nを選択する。select_topn_with_sector_limitと同じ貪欲法で、
+    セクターの代わりにTICKER_TO_CLUSTERを使う(2026-09-23追加、業種分類より実際の
+    値動きの共動性を反映した分散制約を検証するため)。
+
+    必須列:
+        ticker
+        score
+    """
+
+    required_cols = {"ticker", "score"}
+    missing_cols = required_cols - set(day_df.columns)
+
+    if missing_cols:
+        raise ValueError(
+            f"select_topn_with_cluster_limit: "
+            f"必要な列が不足しています: {sorted(missing_cols)}"
+        )
+
+    work = day_df.copy()
+
+    normalized_cluster_map = {
+        str(ticker): cluster for ticker, cluster in TICKER_TO_CLUSTER.items()
+    }
+
+    work["cluster"] = (
+        work["ticker"].astype(str).map(normalized_cluster_map).fillna("UNKNOWN")
+    )
+
+    ordered = work.sort_values(
+        ["score", "ticker"],
+        ascending=[False, True],
+        kind="mergesort",
+    )
+
+    selected_indices = []
+    cluster_counts = {}
+
+    for idx, row in ordered.iterrows():
+        cluster = row["cluster"]
+
+        if cluster_counts.get(cluster, 0) >= max_per_cluster:
+            continue
+
+        selected_indices.append(idx)
+        cluster_counts[cluster] = cluster_counts.get(cluster, 0) + 1
 
         if len(selected_indices) >= top_n:
             break
