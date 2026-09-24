@@ -1,0 +1,1346 @@
+[*] 開始集合: stock=['stock_ret_1d', 'stock_ret_20d', 'rolling_beta', 'vol_ratio_5d', 'overnight_gap', 'dist_from_low20', 'gap_strength_5', 'atr_accel', 'dist_from_high60']
+[*] 開始集合: macro=['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentum', 'nk_ret_norm']
+[*] 候補プール(31個): ['rolling_beta_x_cta_net_norm', 'rolling_beta_x_cta_net_norm_x_market_vol_regime', 'cta_net_norm_x_market_vol_regime', 'pin_dist_ratio_x_cta_net_norm', 'cta_net_norm_x_low_v2', 'atr_term_ratio', 'gap_avg_5d', 'volume_zscore', 'relative_strength_5d', 'rs20', 'rs60', 'momentum_accel', 'close_location_value', 'body_ratio', 'adx14', 'volume_accel', 'efficiency_ratio20', 'days_since_high20', 'new_high20', 'positive_gap_ratio_5', 'gap_follow_through', 'volume_ma_ratio', 'vwap_distance', 'ret_rank_20d', 'vol_rank_5d', 'high20_rank', 'market_above_ma25_ratio', 'market_newhigh20_ratio', 'market_newlow20_ratio', 'market_breakout_score', 'market_turnover_z']
+[00:00:00] [greedy] データプール構築(1回だけ)...
+[cache] 特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_full_feature_pool.pkl)
+[cache] マージン特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_margin_pool.pkl)
+[cache] セクター相対特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_sector_relative_pool.pkl)
+[cache] マクロ特徴量プールキャッシュを読み込みました (F:\stockModel\research\cache\_cache_full_macro_pool.pkl)
+[00:00:07] [greedy] baseline: train=69360 val=26821 backtest_pool=26821
+[00:00:07] [greedy] baseline未キャッシュのseed=[42, 43, 44, 45, 46]を学習します...
+[worker base seed=42] memmap load: train=41.8MB val=16.2MB
+[worker base seed=43] memmap load: train=41.8MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(base,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker base seed=44] memmap load: train=41.8MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker base seed=45] memmap load: train=41.8MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker base seed=46] memmap load: train=41.8MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:14]   [parallel_sweep(base,seed=42)] epoch  1/30: train_loss=0.6941 val_loss=0.6928 <- best
+[00:00:14]   [parallel_sweep(base,seed=43)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:00:14]   [parallel_sweep(base,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6935 <- best
+[00:00:14]   [parallel_sweep(base,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:00:14]   [parallel_sweep(base,seed=46)] epoch  1/30: train_loss=0.6938 val_loss=0.6931 <- best
+[00:00:26]   [parallel_sweep(base,seed=43)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[00:00:26]   [parallel_sweep(base,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6932 <- best
+[00:00:27]   [parallel_sweep(base,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6931 <- best
+[00:00:39]   [parallel_sweep(base,seed=44)] epoch  3/30: train_loss=0.6930 val_loss=0.6930 <- best
+[00:01:03]   [parallel_sweep(base,seed=43)] epoch  5/30: train_loss=0.6925 val_loss=0.6936 (patience 3/7)
+[00:01:03]   [parallel_sweep(base,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6931 (patience 4/7)
+[00:01:03]   [parallel_sweep(base,seed=44)] epoch  5/30: train_loss=0.6927 val_loss=0.6932 (patience 2/7)
+[00:01:03]   [parallel_sweep(base,seed=45)] epoch  5/30: train_loss=0.6924 val_loss=0.6936 (patience 4/7)
+[00:01:03]   [parallel_sweep(base,seed=46)] epoch  5/30: train_loss=0.6924 val_loss=0.6936 (patience 3/7)
+[00:01:40]   [parallel_sweep(base,seed=42)] epoch  8/30: train_loss=0.6922 val_loss=0.6933 (patience 7/7)
+[00:01:40] [+] [parallel_sweep(base,seed=42) seed=42] 学習完了 best_val_loss=0.6928
+[worker base seed=42] train_model elapsed=100.5s
+[00:01:40]   [parallel_sweep(base,seed=45)] epoch  8/30: train_loss=0.6919 val_loss=0.6941 (patience 7/7)
+[00:01:40] [+] [parallel_sweep(base,seed=45) seed=45] 学習完了 best_val_loss=0.6933
+[worker base seed=45] train_model elapsed=100.9s
+[00:01:48]   [parallel_sweep(base,seed=43)] epoch  9/30: train_loss=0.6919 val_loss=0.6941 (patience 7/7)
+[00:01:48] [+] [parallel_sweep(base,seed=43) seed=43] 学習完了 best_val_loss=0.6931
+[worker base seed=43] train_model elapsed=108.5s
+[00:01:48]   [parallel_sweep(base,seed=46)] epoch  9/30: train_loss=0.6918 val_loss=0.6940 (patience 7/7)
+[00:01:48] [+] [parallel_sweep(base,seed=46) seed=46] 学習完了 best_val_loss=0.6931
+[worker base seed=46] train_model elapsed=108.3s
+[00:01:55]   [parallel_sweep(base,seed=44)] epoch 10/30: train_loss=0.6916 val_loss=0.6942 (patience 7/7)
+[00:01:55] [+] [parallel_sweep(base,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker base seed=44] train_model elapsed=115.6s
+[00:02:10] [greedy] round 0 (baseline): アンサンブル日次Top-5 PF=1.512 (n=645)
+[00:02:10] [greedy] 候補プール: 31個 -> ['rolling_beta_x_cta_net_norm', 'rolling_beta_x_cta_net_norm_x_market_vol_regime', 'cta_net_norm_x_market_vol_regime', 'pin_dist_ratio_x_cta_net_norm', 'cta_net_norm_x_low_v2', 'atr_term_ratio', 'gap_avg_5d', 'volume_zscore', 'relative_strength_5d', 'rs20', 'rs60', 'momentum_accel', 'close_location_value', 'body_ratio', 'adx14', 'volume_accel', 'efficiency_ratio20', 'days_since_high20', 'new_high20', 'positive_gap_ratio_5', 'gap_follow_through', 'volume_ma_ratio', 'vwap_distance', 'ret_rank_20d', 'vol_rank_5d', 'high20_rank', 'market_above_ma25_ratio', 'market_newhigh20_ratio', 'market_newlow20_ratio', 'market_breakout_score', 'market_turnover_z']
+[00:05:30] [greedy] round 1: 31候補 x 5seed = 155ジョブを並列学習します(最大10並列)...
+[worker rolling_beta_x_cta_net_norm seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker rolling_beta_x_cta_net_norm seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker rolling_beta_x_cta_net_norm seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker rolling_beta_x_cta_net_norm seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker rolling_beta_x_cta_net_norm seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=42] memmap load: train=44.5MB val=17.2MB
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=43] memmap load: train=44.5MB val=17.2MB
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:27]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=42)] epoch  1/30: train_loss=0.6938 val_loss=0.6932 <- best
+[00:00:27]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=43)] epoch  1/30: train_loss=0.6940 val_loss=0.6933 <- best
+[00:00:27]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6936 <- best
+[00:00:28]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6936 <- best
+[00:00:28]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6934 <- best
+[00:00:29]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6929 <- best
+[00:00:29]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=42)] epoch  1/30: train_loss=0.6938 val_loss=0.6929 <- best
+[00:00:29]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6934 <- best
+[00:00:30]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6930 <- best
+[00:00:30]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6932 <- best
+[00:00:52]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=44)] epoch  2/30: train_loss=0.6932 val_loss=0.6935 <- best
+[00:00:53]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6934 <- best
+[00:00:53]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6933 <- best
+[00:00:55]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6932 <- best
+[00:01:20]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=42)] epoch  3/30: train_loss=0.6927 val_loss=0.6928 <- best
+[00:01:20]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=44)] epoch  3/30: train_loss=0.6928 val_loss=0.6929 <- best
+[00:02:08]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=42)] epoch  5/30: train_loss=0.6927 val_loss=0.6934 (patience 4/7)
+[00:02:08]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6939 (patience 4/7)
+[00:02:07]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6939 (patience 3/7)
+[00:02:08]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6935 (patience 3/7)
+[00:02:09]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=46)] epoch  5/30: train_loss=0.6928 val_loss=0.6937 (patience 3/7)
+[00:02:10]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6930 (patience 2/7)
+[00:02:10]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6937 (patience 4/7)
+[00:02:11]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6934 (patience 3/7)
+[00:02:11]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6933 (patience 2/7)
+[00:02:12]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=46)] epoch  5/30: train_loss=0.6928 val_loss=0.6935 (patience 4/7)
+[00:02:37]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=46)] epoch  6/30: train_loss=0.6926 val_loss=0.6931 <- best
+[00:03:24]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=43)] epoch  8/30: train_loss=0.6917 val_loss=0.6949 (patience 7/7)
+[00:03:24] [+] [parallel_sweep(rolling_beta_x_cta_net_norm,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker rolling_beta_x_cta_net_norm seed=43] train_model elapsed=204.5s
+[00:03:24]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=42)] epoch  8/30: train_loss=0.6921 val_loss=0.6935 (patience 7/7)
+[00:03:25] [+] [parallel_sweep(rolling_beta_x_cta_net_norm,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker rolling_beta_x_cta_net_norm seed=42] train_model elapsed=204.9s
+[00:03:25]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=43)] epoch  8/30: train_loss=0.6918 val_loss=0.6943 (patience 7/7)
+[00:03:26] [+] [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=43) seed=43] 学習完了 best_val_loss=0.6929
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=43] train_model elapsed=206.2s
+[worker cta_net_norm_x_market_vol_regime seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker cta_net_norm_x_market_vol_regime seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker cta_net_norm_x_market_vol_regime seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:03:42]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=44)] epoch  9/30: train_loss=0.6917 val_loss=0.6940 (patience 7/7)
+[00:03:42] [+] [parallel_sweep(rolling_beta_x_cta_net_norm,seed=44) seed=44] 学習完了 best_val_loss=0.6935
+[worker rolling_beta_x_cta_net_norm seed=44] train_model elapsed=222.3s
+[00:03:42]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=45)] epoch  9/30: train_loss=0.6919 val_loss=0.6934 (patience 7/7)
+[00:03:42] [+] [parallel_sweep(rolling_beta_x_cta_net_norm,seed=45) seed=45] 学習完了 best_val_loss=0.6934
+[worker rolling_beta_x_cta_net_norm seed=45] train_model elapsed=222.6s
+[00:03:42]   [parallel_sweep(rolling_beta_x_cta_net_norm,seed=46)] epoch  9/30: train_loss=0.6920 val_loss=0.6945 (patience 7/7)
+[00:03:42] [+] [parallel_sweep(rolling_beta_x_cta_net_norm,seed=46) seed=46] 学習完了 best_val_loss=0.6933
+[worker rolling_beta_x_cta_net_norm seed=46] train_model elapsed=222.8s
+[00:03:43]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=45)] epoch  9/30: train_loss=0.6917 val_loss=0.6937 (patience 7/7)
+[00:03:43] [+] [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=45) seed=45] 学習完了 best_val_loss=0.6932
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=45] train_model elapsed=223.9s
+[worker cta_net_norm_x_market_vol_regime seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker cta_net_norm_x_market_vol_regime seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[worker pin_dist_ratio_x_cta_net_norm seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker pin_dist_ratio_x_cta_net_norm seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:00:21]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6930 <- best
+[00:00:22]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6930 <- best
+[00:00:23]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=44)] epoch  1/30: train_loss=0.6940 val_loss=0.6934 <- best
+[00:04:01]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6936 (patience 7/7)
+[00:04:01] [+] [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=42) seed=42] 学習完了 best_val_loss=0.6928
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=42] train_model elapsed=241.2s
+[00:04:02]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=44)] epoch 10/30: train_loss=0.6913 val_loss=0.6934 (patience 7/7)
+[00:04:02] [+] [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=44) seed=44] 学習完了 best_val_loss=0.6929
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=44] train_model elapsed=242.4s
+[00:04:02]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=46)] epoch 10/30: train_loss=0.6915 val_loss=0.6942 (patience 4/7)
+[worker pin_dist_ratio_x_cta_net_norm seed=44] memmap load: train=44.5MB val=17.2MB
+[worker pin_dist_ratio_x_cta_net_norm seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:00:26]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6929 <- best
+[00:00:26]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=46)] epoch  1/30: train_loss=0.6937 val_loss=0.6932 <- best
+[00:00:43]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=42)] epoch  2/30: train_loss=0.6931 val_loss=0.6929 <- best
+[00:00:43]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6930 <- best
+[00:00:26]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=42)] epoch  1/30: train_loss=0.6936 val_loss=0.6929 <- best
+[00:00:27]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=43)] epoch  1/30: train_loss=0.6938 val_loss=0.6931 <- best
+[00:00:44]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=44)] epoch  2/30: train_loss=0.6932 val_loss=0.6933 <- best
+[00:00:49]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6929 <- best
+[00:00:49]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=46)] epoch  2/30: train_loss=0.6930 val_loss=0.6932 <- best
+[00:01:06]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=42)] epoch  3/30: train_loss=0.6929 val_loss=0.6928 <- best
+[00:00:50]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=42)] epoch  2/30: train_loss=0.6930 val_loss=0.6928 <- best
+[00:00:51]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6931 <- best
+[00:00:33]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[00:00:34]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6934 <- best
+[00:01:16]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=42)] epoch  3/30: train_loss=0.6928 val_loss=0.6928 <- best
+[00:01:16]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=43)] epoch  3/30: train_loss=0.6928 val_loss=0.6930 <- best
+[00:00:58]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=44)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[00:05:13]   [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=46)] epoch 13/30: train_loss=0.6911 val_loss=0.6945 (patience 7/7)
+[00:05:13] [+] [parallel_sweep(rolling_beta_x_cta_net_norm_x_market_vol_regime,seed=46) seed=46] 学習完了 best_val_loss=0.6931
+[worker rolling_beta_x_cta_net_norm_x_market_vol_regime seed=46] train_model elapsed=313.6s
+[00:00:59]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6933 <- best
+[00:01:55]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6930 (patience 2/7)
+[00:01:56]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6936 (patience 3/7)
+[worker pin_dist_ratio_x_cta_net_norm seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:01:56]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6938 (patience 3/7)
+[00:01:20]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=44)] epoch  3/30: train_loss=0.6927 val_loss=0.6930 <- best
+[00:02:02]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6929 <- best
+[00:02:02]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=46)] epoch  5/30: train_loss=0.6925 val_loss=0.6936 (patience 3/7)
+[00:02:03]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6929 (patience 2/7)
+[00:02:03]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6937 (patience 2/7)
+[00:00:38]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=46)] epoch  1/30: train_loss=0.6937 val_loss=0.6930 <- best
+[00:02:10]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=44)] epoch  5/30: train_loss=0.6923 val_loss=0.6936 (patience 2/7)
+[00:02:11]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=45)] epoch  5/30: train_loss=0.6928 val_loss=0.6933 (patience 3/7)
+[00:01:03]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=46)] epoch  2/30: train_loss=0.6930 val_loss=0.6930 <- best
+[00:03:36]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=43)] epoch  9/30: train_loss=0.6917 val_loss=0.6935 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=43) seed=43] 学習完了 best_val_loss=0.6930
+[worker cta_net_norm_x_market_vol_regime seed=43] train_model elapsed=216.4s
+[00:03:35]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=44)] epoch  9/30: train_loss=0.6917 val_loss=0.6947 (patience 7/7)
+[00:03:35] [+] [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=44) seed=44] 学習完了 best_val_loss=0.6933
+[worker cta_net_norm_x_market_vol_regime seed=44] train_model elapsed=215.6s
+[worker cta_net_norm_x_low_v2 seed=43] memmap load: train=44.5MB val=17.2MB
+[worker cta_net_norm_x_low_v2 seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(cta_net_norm_x_low_v2,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(cta_net_norm_x_low_v2,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:03:39]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=46)] epoch  9/30: train_loss=0.6917 val_loss=0.6938 (patience 7/7)
+[00:03:39] [+] [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker cta_net_norm_x_market_vol_regime seed=46] train_model elapsed=219.0s
+[00:03:55]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=42)] epoch 10/30: train_loss=0.6913 val_loss=0.6942 (patience 7/7)
+[00:03:55] [+] [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=42) seed=42] 学習完了 best_val_loss=0.6928
+[worker cta_net_norm_x_market_vol_regime seed=42] train_model elapsed=235.7s
+[worker cta_net_norm_x_low_v2 seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(cta_net_norm_x_low_v2,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:02:11]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=46)] epoch  5/30: train_loss=0.6925 val_loss=0.6933 (patience 3/7)
+[worker cta_net_norm_x_low_v2 seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(cta_net_norm_x_low_v2,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:03:58]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=45)] epoch 10/30: train_loss=0.6915 val_loss=0.6931 (patience 5/7)
+[00:03:59]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6937 (patience 7/7)
+[00:03:59] [+] [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=42) seed=42] 学習完了 best_val_loss=0.6928
+[worker pin_dist_ratio_x_cta_net_norm seed=42] train_model elapsed=238.9s
+[00:03:59]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=43)] epoch 10/30: train_loss=0.6912 val_loss=0.6943 (patience 7/7)
+[00:03:59] [+] [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=43) seed=43] 学習完了 best_val_loss=0.6930
+[worker pin_dist_ratio_x_cta_net_norm seed=43] train_model elapsed=239.2s
+[00:00:28]   [parallel_sweep(cta_net_norm_x_low_v2,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6930 <- best
+[00:00:28]   [parallel_sweep(cta_net_norm_x_low_v2,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6932 <- best
+[00:03:40]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=45)] epoch  9/30: train_loss=0.6919 val_loss=0.6935 (patience 7/7)
+[00:03:40] [+] [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=45) seed=45] 学習完了 best_val_loss=0.6933
+[worker pin_dist_ratio_x_cta_net_norm seed=45] train_model elapsed=220.2s
+[worker cta_net_norm_x_low_v2 seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(cta_net_norm_x_low_v2,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[worker atr_term_ratio seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(atr_term_ratio,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker atr_term_ratio seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(atr_term_ratio,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:00:28]   [parallel_sweep(cta_net_norm_x_low_v2,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[00:00:47]   [parallel_sweep(cta_net_norm_x_low_v2,seed=42)] epoch  2/30: train_loss=0.6930 val_loss=0.6930 <- best
+[00:00:47]   [parallel_sweep(cta_net_norm_x_low_v2,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6932 <- best
+[00:00:28]   [parallel_sweep(cta_net_norm_x_low_v2,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6934 <- best
+[00:03:59]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=44)] epoch 10/30: train_loss=0.6911 val_loss=0.6944 (patience 7/7)
+[00:03:59] [+] [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker pin_dist_ratio_x_cta_net_norm seed=44] train_model elapsed=239.8s
+[00:00:28]   [parallel_sweep(cta_net_norm_x_low_v2,seed=46)] epoch  1/30: train_loss=0.6938 val_loss=0.6931 <- best
+[00:00:27]   [parallel_sweep(atr_term_ratio,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6931 <- best
+[00:04:39]   [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=45)] epoch 12/30: train_loss=0.6911 val_loss=0.6937 (patience 7/7)
+[00:04:39] [+] [parallel_sweep(cta_net_norm_x_market_vol_regime,seed=45) seed=45] 学習完了 best_val_loss=0.6929
+[worker cta_net_norm_x_market_vol_regime seed=45] train_model elapsed=279.7s
+[worker atr_term_ratio seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(atr_term_ratio,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:01:09]   [parallel_sweep(cta_net_norm_x_low_v2,seed=43)] epoch  3/30: train_loss=0.6928 val_loss=0.6932 <- best
+[00:00:51]   [parallel_sweep(cta_net_norm_x_low_v2,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6933 <- best
+[00:00:34]   [parallel_sweep(atr_term_ratio,seed=43)] epoch  1/30: train_loss=0.6940 val_loss=0.6933 <- best
+[worker atr_term_ratio seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(atr_term_ratio,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:00:49]   [parallel_sweep(cta_net_norm_x_low_v2,seed=46)] epoch  2/30: train_loss=0.6930 val_loss=0.6931 <- best
+[00:01:15]   [parallel_sweep(cta_net_norm_x_low_v2,seed=44)] epoch  3/30: train_loss=0.6927 val_loss=0.6931 <- best
+[00:00:32]   [parallel_sweep(atr_term_ratio,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6931 <- best
+[00:03:36]   [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=46)] epoch  9/30: train_loss=0.6919 val_loss=0.6937 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(pin_dist_ratio_x_cta_net_norm,seed=46) seed=46] 学習完了 best_val_loss=0.6930
+[worker pin_dist_ratio_x_cta_net_norm seed=46] train_model elapsed=216.0s
+[00:01:55]   [parallel_sweep(cta_net_norm_x_low_v2,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6938 (patience 2/7)
+[00:01:55]   [parallel_sweep(cta_net_norm_x_low_v2,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6932 (patience 3/7)
+[00:00:34]   [parallel_sweep(atr_term_ratio,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[worker atr_term_ratio seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(atr_term_ratio,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:55]   [parallel_sweep(atr_term_ratio,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6931 <- best
+[00:00:57]   [parallel_sweep(atr_term_ratio,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6931 <- best
+[00:02:05]   [parallel_sweep(cta_net_norm_x_low_v2,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6936 (patience 2/7)
+[00:02:04]   [parallel_sweep(cta_net_norm_x_low_v2,seed=45)] epoch  5/30: train_loss=0.6927 val_loss=0.6933 <- best
+[00:01:45]   [parallel_sweep(atr_term_ratio,seed=43)] epoch  4/30: train_loss=0.6926 val_loss=0.6933 <- best
+[00:00:35]   [parallel_sweep(atr_term_ratio,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6932 <- best
+[00:02:00]   [parallel_sweep(cta_net_norm_x_low_v2,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6934 (patience 3/7)
+[00:02:00]   [parallel_sweep(atr_term_ratio,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6932 (patience 4/7)
+[00:02:10]   [parallel_sweep(atr_term_ratio,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6938 (patience 1/7)
+[00:02:10]   [parallel_sweep(atr_term_ratio,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6934 (patience 3/7)
+[00:03:32]   [parallel_sweep(cta_net_norm_x_low_v2,seed=42)] epoch  9/30: train_loss=0.6916 val_loss=0.6937 (patience 7/7)
+[00:03:32] [+] [parallel_sweep(cta_net_norm_x_low_v2,seed=42) seed=42] 学習完了 best_val_loss=0.6930
+[worker cta_net_norm_x_low_v2 seed=42] train_model elapsed=212.8s
+[00:02:12]   [parallel_sweep(atr_term_ratio,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6934 (patience 3/7)
+[worker gap_avg_5d seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_avg_5d,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:03:13]   [parallel_sweep(atr_term_ratio,seed=42)] epoch  8/30: train_loss=0.6921 val_loss=0.6931 <- best
+[00:03:56]   [parallel_sweep(cta_net_norm_x_low_v2,seed=43)] epoch 10/30: train_loss=0.6914 val_loss=0.6942 (patience 7/7)
+[00:03:56] [+] [parallel_sweep(cta_net_norm_x_low_v2,seed=43) seed=43] 学習完了 best_val_loss=0.6932
+[worker cta_net_norm_x_low_v2 seed=43] train_model elapsed=235.9s
+[worker gap_avg_5d seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_avg_5d,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:02:10]   [parallel_sweep(atr_term_ratio,seed=46)] epoch  5/30: train_loss=0.6927 val_loss=0.6937 (patience 4/7)
+[00:03:35]   [parallel_sweep(cta_net_norm_x_low_v2,seed=46)] epoch  9/30: train_loss=0.6919 val_loss=0.6939 (patience 7/7)
+[00:03:35] [+] [parallel_sweep(cta_net_norm_x_low_v2,seed=46) seed=46] 学習完了 best_val_loss=0.6931
+[worker cta_net_norm_x_low_v2 seed=46] train_model elapsed=215.6s
+[00:00:31]   [parallel_sweep(gap_avg_5d,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[worker gap_avg_5d seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_avg_5d,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:04:09]   [parallel_sweep(cta_net_norm_x_low_v2,seed=45)] epoch 10/30: train_loss=0.6919 val_loss=0.6938 (patience 5/7)
+[00:04:11]   [parallel_sweep(cta_net_norm_x_low_v2,seed=44)] epoch 10/30: train_loss=0.6913 val_loss=0.6940 (patience 7/7)
+[00:04:11] [+] [parallel_sweep(cta_net_norm_x_low_v2,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker cta_net_norm_x_low_v2 seed=44] train_model elapsed=251.6s
+[00:03:56]   [parallel_sweep(atr_term_ratio,seed=42)] epoch 10/30: train_loss=0.6919 val_loss=0.6937 (patience 2/7)
+[00:00:31]   [parallel_sweep(gap_avg_5d,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6934 <- best
+[worker gap_avg_5d seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_avg_5d,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:04:05]   [parallel_sweep(atr_term_ratio,seed=43)] epoch 10/30: train_loss=0.6916 val_loss=0.6947 (patience 6/7)
+[00:03:39]   [parallel_sweep(atr_term_ratio,seed=44)] epoch  9/30: train_loss=0.6916 val_loss=0.6935 (patience 7/7)
+[00:03:39] [+] [parallel_sweep(atr_term_ratio,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker atr_term_ratio seed=44] train_model elapsed=219.9s
+[00:00:31]   [parallel_sweep(gap_avg_5d,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6930 <- best
+[worker gap_avg_5d seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_avg_5d,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:03:39]   [parallel_sweep(atr_term_ratio,seed=45)] epoch  9/30: train_loss=0.6919 val_loss=0.6937 (patience 7/7)
+[00:03:39] [+] [parallel_sweep(atr_term_ratio,seed=45) seed=45] 学習完了 best_val_loss=0.6931
+[worker atr_term_ratio seed=45] train_model elapsed=219.9s
+[00:00:52]   [parallel_sweep(gap_avg_5d,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6934 <- best
+[00:04:25]   [parallel_sweep(atr_term_ratio,seed=43)] epoch 11/30: train_loss=0.6912 val_loss=0.6951 (patience 7/7)
+[00:04:25] [+] [parallel_sweep(atr_term_ratio,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker atr_term_ratio seed=43] train_model elapsed=266.0s
+[worker volume_zscore seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_zscore,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:04:53]   [parallel_sweep(cta_net_norm_x_low_v2,seed=45)] epoch 12/30: train_loss=0.6914 val_loss=0.6940 (patience 7/7)
+[00:04:53] [+] [parallel_sweep(cta_net_norm_x_low_v2,seed=45) seed=45] 学習完了 best_val_loss=0.6933
+[worker cta_net_norm_x_low_v2 seed=45] train_model elapsed=293.6s
+[00:03:14]   [parallel_sweep(atr_term_ratio,seed=46)] epoch  8/30: train_loss=0.6919 val_loss=0.6943 (patience 7/7)
+[00:03:14] [+] [parallel_sweep(atr_term_ratio,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker atr_term_ratio seed=46] train_model elapsed=194.2s
+[00:00:32]   [parallel_sweep(gap_avg_5d,seed=45)] epoch  1/30: train_loss=0.6943 val_loss=0.6932 <- best
+[worker volume_zscore seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:51]   [parallel_sweep(gap_avg_5d,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:00:00]   [parallel_sweep(volume_zscore,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker volume_zscore seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_zscore,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:01:11]   [parallel_sweep(gap_avg_5d,seed=43)] epoch  3/30: train_loss=0.6927 val_loss=0.6934 <- best
+[worker volume_zscore seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_zscore,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:00:25]   [parallel_sweep(gap_avg_5d,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6932 <- best
+[00:00:54]   [parallel_sweep(gap_avg_5d,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6930 <- best
+[00:00:26]   [parallel_sweep(volume_zscore,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[00:01:56]   [parallel_sweep(gap_avg_5d,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 4/7)
+[00:00:30]   [parallel_sweep(volume_zscore,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6933 <- best
+[00:00:49]   [parallel_sweep(gap_avg_5d,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6932 <- best
+[00:00:31]   [parallel_sweep(volume_zscore,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6930 <- best
+[00:00:33]   [parallel_sweep(volume_zscore,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[00:01:59]   [parallel_sweep(gap_avg_5d,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6939 (patience 2/7)
+[00:00:55]   [parallel_sweep(volume_zscore,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6933 <- best
+[00:00:56]   [parallel_sweep(volume_zscore,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:00:58]   [parallel_sweep(volume_zscore,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6930 <- best
+[00:05:48]   [parallel_sweep(atr_term_ratio,seed=42)] epoch 15/30: train_loss=0.6909 val_loss=0.6938 (patience 7/7)
+[00:05:48] [+] [parallel_sweep(atr_term_ratio,seed=42) seed=42] 学習完了 best_val_loss=0.6931
+[worker atr_term_ratio seed=42] train_model elapsed=348.0s
+[00:02:02]   [parallel_sweep(gap_avg_5d,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6933 (patience 3/7)
+[worker volume_zscore seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_zscore,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:02:12]   [parallel_sweep(gap_avg_5d,seed=45)] epoch  5/30: train_loss=0.6927 val_loss=0.6932 (patience 3/7)
+[00:03:08]   [parallel_sweep(gap_avg_5d,seed=42)] epoch  8/30: train_loss=0.6921 val_loss=0.6933 (patience 7/7)
+[00:03:08] [+] [parallel_sweep(gap_avg_5d,seed=42) seed=42] 学習完了 best_val_loss=0.6933
+[worker gap_avg_5d seed=42] train_model elapsed=188.6s
+[00:02:00]   [parallel_sweep(gap_avg_5d,seed=46)] epoch  5/30: train_loss=0.6928 val_loss=0.6935 (patience 3/7)
+[00:02:01]   [parallel_sweep(volume_zscore,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6932 <- best
+[worker relative_strength_5d seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(relative_strength_5d,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:02:03]   [parallel_sweep(volume_zscore,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6938 (patience 3/7)
+[00:02:03]   [parallel_sweep(volume_zscore,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6933 (patience 3/7)
+[00:02:06]   [parallel_sweep(volume_zscore,seed=45)] epoch  5/30: train_loss=0.6927 val_loss=0.6934 (patience 3/7)
+[00:00:38]   [parallel_sweep(volume_zscore,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:01:03]   [parallel_sweep(volume_zscore,seed=46)] epoch  2/30: train_loss=0.6932 val_loss=0.6932 <- best
+[00:03:33]   [parallel_sweep(gap_avg_5d,seed=44)] epoch  9/30: train_loss=0.6916 val_loss=0.6934 (patience 7/7)
+[00:03:33] [+] [parallel_sweep(gap_avg_5d,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker gap_avg_5d seed=44] train_model elapsed=213.6s
+[00:00:44]   [parallel_sweep(relative_strength_5d,seed=42)] epoch  1/30: train_loss=0.6938 val_loss=0.6934 <- best
+[00:03:54]   [parallel_sweep(gap_avg_5d,seed=43)] epoch 10/30: train_loss=0.6915 val_loss=0.6945 (patience 7/7)
+[00:03:54] [+] [parallel_sweep(gap_avg_5d,seed=43) seed=43] 学習完了 best_val_loss=0.6934
+[worker gap_avg_5d seed=43] train_model elapsed=234.5s
+[worker relative_strength_5d seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(relative_strength_5d,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker relative_strength_5d seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(relative_strength_5d,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:03:09]   [parallel_sweep(volume_zscore,seed=42)] epoch  8/30: train_loss=0.6921 val_loss=0.6932 <- best
+[00:03:29]   [parallel_sweep(gap_avg_5d,seed=46)] epoch  9/30: train_loss=0.6918 val_loss=0.6941 (patience 7/7)
+[00:03:29] [+] [parallel_sweep(gap_avg_5d,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker gap_avg_5d seed=46] train_model elapsed=209.3s
+[00:03:48]   [parallel_sweep(gap_avg_5d,seed=45)] epoch  9/30: train_loss=0.6919 val_loss=0.6934 (patience 7/7)
+[00:03:48] [+] [parallel_sweep(gap_avg_5d,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker gap_avg_5d seed=45] train_model elapsed=228.0s
+[worker relative_strength_5d seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(relative_strength_5d,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker relative_strength_5d seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(relative_strength_5d,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:28]   [parallel_sweep(relative_strength_5d,seed=43)] epoch  1/30: train_loss=0.6940 val_loss=0.6935 <- best
+[00:03:31]   [parallel_sweep(volume_zscore,seed=43)] epoch  9/30: train_loss=0.6917 val_loss=0.6948 (patience 7/7)
+[00:03:31] [+] [parallel_sweep(volume_zscore,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker volume_zscore seed=43] train_model elapsed=211.2s
+[00:00:29]   [parallel_sweep(relative_strength_5d,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6932 <- best
+[00:03:31]   [parallel_sweep(volume_zscore,seed=44)] epoch  9/30: train_loss=0.6916 val_loss=0.6937 (patience 7/7)
+[00:03:31] [+] [parallel_sweep(volume_zscore,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker volume_zscore seed=44] train_model elapsed=211.1s
+[00:02:06]   [parallel_sweep(volume_zscore,seed=46)] epoch  5/30: train_loss=0.6927 val_loss=0.6937 (patience 3/7)
+[00:03:34]   [parallel_sweep(volume_zscore,seed=45)] epoch  9/30: train_loss=0.6919 val_loss=0.6937 (patience 7/7)
+[00:03:34] [+] [parallel_sweep(volume_zscore,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker volume_zscore seed=45] train_model elapsed=214.1s
+[00:03:50]   [parallel_sweep(volume_zscore,seed=42)] epoch 10/30: train_loss=0.6918 val_loss=0.6938 (patience 2/7)
+[worker rs20 seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs20,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker rs20 seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs20,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:00:48]   [parallel_sweep(relative_strength_5d,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[worker rs20 seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs20,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:27]   [parallel_sweep(relative_strength_5d,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6931 <- best
+[00:00:26]   [parallel_sweep(relative_strength_5d,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6934 <- best
+[00:02:06]   [parallel_sweep(relative_strength_5d,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6934 <- best
+[00:01:11]   [parallel_sweep(relative_strength_5d,seed=44)] epoch  3/30: train_loss=0.6927 val_loss=0.6930 <- best
+[00:00:50]   [parallel_sweep(relative_strength_5d,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6933 <- best
+[00:00:51]   [parallel_sweep(relative_strength_5d,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6929 <- best
+[00:00:31]   [parallel_sweep(rs20,seed=42)] epoch  1/30: train_loss=0.6938 val_loss=0.6933 <- best
+[00:00:32]   [parallel_sweep(rs20,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6933 <- best
+[00:00:36]   [parallel_sweep(rs20,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6930 <- best
+[00:00:58]   [parallel_sweep(rs20,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6933 <- best
+[00:01:01]   [parallel_sweep(rs20,seed=44)] epoch  2/30: train_loss=0.6932 val_loss=0.6929 <- best
+[00:02:00]   [parallel_sweep(relative_strength_5d,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6944 (patience 4/7)
+[00:02:00]   [parallel_sweep(relative_strength_5d,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6933 (patience 2/7)
+[00:01:22]   [parallel_sweep(rs20,seed=42)] epoch  3/30: train_loss=0.6928 val_loss=0.6933 <- best
+[00:03:41]   [parallel_sweep(volume_zscore,seed=46)] epoch  9/30: train_loss=0.6917 val_loss=0.6951 (patience 7/7)
+[00:03:41] [+] [parallel_sweep(volume_zscore,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker volume_zscore seed=46] train_model elapsed=221.3s
+[00:03:21]   [parallel_sweep(relative_strength_5d,seed=42)] epoch  8/30: train_loss=0.6918 val_loss=0.6932 <- best
+[00:02:05]   [parallel_sweep(relative_strength_5d,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6934 (patience 3/7)
+[00:02:04]   [parallel_sweep(relative_strength_5d,seed=46)] epoch  5/30: train_loss=0.6924 val_loss=0.6940 (patience 3/7)
+[worker rs20 seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs20,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:05:49]   [parallel_sweep(volume_zscore,seed=42)] epoch 15/30: train_loss=0.6907 val_loss=0.6938 (patience 7/7)
+[00:05:49] [+] [parallel_sweep(volume_zscore,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker volume_zscore seed=42] train_model elapsed=349.4s
+[00:02:08]   [parallel_sweep(rs20,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6933 (patience 2/7)
+[00:02:08]   [parallel_sweep(rs20,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6938 (patience 3/7)
+[00:02:11]   [parallel_sweep(rs20,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6933 (patience 3/7)
+[00:00:36]   [parallel_sweep(rs20,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[worker rs20 seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs20,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:04:07]   [parallel_sweep(relative_strength_5d,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6938 (patience 2/7)
+[00:03:10]   [parallel_sweep(relative_strength_5d,seed=43)] epoch  8/30: train_loss=0.6917 val_loss=0.6950 (patience 7/7)
+[00:03:10] [+] [parallel_sweep(relative_strength_5d,seed=43) seed=43] 学習完了 best_val_loss=0.6935
+[worker relative_strength_5d seed=43] train_model elapsed=190.5s
+[worker rs60 seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs60,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:01:00]   [parallel_sweep(rs20,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:00:31]   [parallel_sweep(rs20,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:03:56]   [parallel_sweep(relative_strength_5d,seed=44)] epoch 10/30: train_loss=0.6913 val_loss=0.6933 (patience 7/7)
+[00:03:56] [+] [parallel_sweep(relative_strength_5d,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker relative_strength_5d seed=44] train_model elapsed=236.5s
+[00:00:36]   [parallel_sweep(rs60,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[00:03:36]   [parallel_sweep(relative_strength_5d,seed=46)] epoch  9/30: train_loss=0.6915 val_loss=0.6952 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(relative_strength_5d,seed=46) seed=46] 学習完了 best_val_loss=0.6933
+[worker relative_strength_5d seed=46] train_model elapsed=216.6s
+[00:03:37]   [parallel_sweep(relative_strength_5d,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6934 (patience 7/7)
+[00:03:37] [+] [parallel_sweep(relative_strength_5d,seed=45) seed=45] 学習完了 best_val_loss=0.6929
+[worker relative_strength_5d seed=45] train_model elapsed=217.5s
+[worker rs60 seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs60,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker rs60 seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs60,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker rs60 seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs60,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:03:37]   [parallel_sweep(rs20,seed=43)] epoch  9/30: train_loss=0.6918 val_loss=0.6947 (patience 7/7)
+[00:03:37] [+] [parallel_sweep(rs20,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker rs20 seed=43] train_model elapsed=217.2s
+[00:03:40]   [parallel_sweep(rs20,seed=44)] epoch  9/30: train_loss=0.6917 val_loss=0.6937 (patience 7/7)
+[00:03:40] [+] [parallel_sweep(rs20,seed=44) seed=44] 学習完了 best_val_loss=0.6929
+[worker rs20 seed=44] train_model elapsed=220.1s
+[00:00:27]   [parallel_sweep(rs60,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6934 <- best
+[worker rs60 seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(rs60,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:01:17]   [parallel_sweep(rs60,seed=42)] epoch  3/30: train_loss=0.6927 val_loss=0.6932 <- best
+[00:00:28]   [parallel_sweep(rs60,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[00:00:29]   [parallel_sweep(rs60,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[00:02:10]   [parallel_sweep(rs20,seed=45)] epoch  5/30: train_loss=0.6925 val_loss=0.6935 (patience 3/7)
+[00:03:58]   [parallel_sweep(rs20,seed=42)] epoch 10/30: train_loss=0.6917 val_loss=0.6941 (patience 7/7)
+[00:03:58] [+] [parallel_sweep(rs20,seed=42) seed=42] 学習完了 best_val_loss=0.6933
+[worker rs20 seed=42] train_model elapsed=238.6s
+[worker momentum_accel seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(momentum_accel,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker momentum_accel seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(momentum_accel,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:05:55]   [parallel_sweep(relative_strength_5d,seed=42)] epoch 15/30: train_loss=0.6907 val_loss=0.6942 (patience 7/7)
+[00:05:55] [+] [parallel_sweep(relative_strength_5d,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker relative_strength_5d seed=42] train_model elapsed=355.2s
+[00:00:49]   [parallel_sweep(rs60,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6931 <- best
+[00:01:56]   [parallel_sweep(rs20,seed=46)] epoch  5/30: train_loss=0.6927 val_loss=0.6940 (patience 4/7)
+[00:00:28]   [parallel_sweep(rs60,seed=46)] epoch  1/30: train_loss=0.6942 val_loss=0.6933 <- best
+[worker momentum_accel seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(momentum_accel,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:29]   [parallel_sweep(momentum_accel,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[00:01:59]   [parallel_sweep(rs60,seed=42)] epoch  5/30: train_loss=0.6923 val_loss=0.6934 (patience 2/7)
+[00:00:51]   [parallel_sweep(rs60,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6932 <- best
+[00:00:32]   [parallel_sweep(momentum_accel,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6934 <- best
+[00:00:36]   [parallel_sweep(momentum_accel,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[00:01:58]   [parallel_sweep(rs60,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6939 (patience 4/7)
+[00:02:00]   [parallel_sweep(rs60,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6937 (patience 4/7)
+[00:02:02]   [parallel_sweep(rs60,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 3/7)
+[00:01:02]   [parallel_sweep(momentum_accel,seed=44)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[00:03:09]   [parallel_sweep(rs20,seed=46)] epoch  8/30: train_loss=0.6919 val_loss=0.6937 (patience 7/7)
+[00:03:09] [+] [parallel_sweep(rs20,seed=46) seed=46] 学習完了 best_val_loss=0.6933
+[worker rs20 seed=46] train_model elapsed=189.7s
+[00:03:50]   [parallel_sweep(rs20,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6938 (patience 7/7)
+[00:03:50] [+] [parallel_sweep(rs20,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker rs20 seed=45] train_model elapsed=230.7s
+[worker momentum_accel seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(momentum_accel,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker momentum_accel seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(momentum_accel,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:02:02]   [parallel_sweep(rs60,seed=46)] epoch  5/30: train_loss=0.6928 val_loss=0.6935 (patience 3/7)
+[00:02:05]   [parallel_sweep(momentum_accel,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 4/7)
+[00:00:32]   [parallel_sweep(momentum_accel,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6931 <- best
+[00:02:08]   [parallel_sweep(momentum_accel,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6940 (patience 4/7)
+[00:00:33]   [parallel_sweep(momentum_accel,seed=46)] epoch  1/30: train_loss=0.6942 val_loss=0.6934 <- best
+[00:03:09]   [parallel_sweep(rs60,seed=43)] epoch  8/30: train_loss=0.6918 val_loss=0.6950 (patience 7/7)
+[00:03:09] [+] [parallel_sweep(rs60,seed=43) seed=43] 学習完了 best_val_loss=0.6934
+[worker rs60 seed=43] train_model elapsed=189.8s
+[00:03:10]   [parallel_sweep(rs60,seed=44)] epoch  8/30: train_loss=0.6916 val_loss=0.6933 (patience 7/7)
+[00:03:10] [+] [parallel_sweep(rs60,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker rs60 seed=44] train_model elapsed=190.6s
+[00:04:00]   [parallel_sweep(rs60,seed=42)] epoch 10/30: train_loss=0.6915 val_loss=0.6938 (patience 7/7)
+[00:04:00] [+] [parallel_sweep(rs60,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker rs60 seed=42] train_model elapsed=239.9s
+[00:02:11]   [parallel_sweep(momentum_accel,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6933 (patience 3/7)
+[00:00:54]   [parallel_sweep(momentum_accel,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6930 <- best
+[00:00:55]   [parallel_sweep(momentum_accel,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6934 <- best
+[worker close_location_value seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(close_location_value,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker close_location_value seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(close_location_value,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker close_location_value seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(close_location_value,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:03:31]   [parallel_sweep(rs60,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6934 (patience 7/7)
+[00:03:31] [+] [parallel_sweep(rs60,seed=45) seed=45] 学習完了 best_val_loss=0.6931
+[worker rs60 seed=45] train_model elapsed=211.7s
+[00:03:13]   [parallel_sweep(momentum_accel,seed=42)] epoch  8/30: train_loss=0.6919 val_loss=0.6933 <- best
+[00:00:29]   [parallel_sweep(close_location_value,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[00:00:29]   [parallel_sweep(close_location_value,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6934 <- best
+[00:00:30]   [parallel_sweep(close_location_value,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[worker close_location_value seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(close_location_value,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:03:33]   [parallel_sweep(rs60,seed=46)] epoch  9/30: train_loss=0.6918 val_loss=0.6941 (patience 7/7)
+[00:03:33] [+] [parallel_sweep(rs60,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker rs60 seed=46] train_model elapsed=213.2s
+[00:03:14]   [parallel_sweep(momentum_accel,seed=43)] epoch  8/30: train_loss=0.6918 val_loss=0.6949 (patience 7/7)
+[00:03:14] [+] [parallel_sweep(momentum_accel,seed=43) seed=43] 学習完了 best_val_loss=0.6934
+[worker momentum_accel seed=43] train_model elapsed=194.3s
+[worker body_ratio seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(body_ratio,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker close_location_value seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:51]   [parallel_sweep(close_location_value,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6931 <- best
+[00:00:00]   [parallel_sweep(close_location_value,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:01:58]   [parallel_sweep(momentum_accel,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 3/7)
+[00:01:58]   [parallel_sweep(momentum_accel,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6944 (patience 3/7)
+[00:00:33]   [parallel_sweep(close_location_value,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6931 <- best
+[00:03:55]   [parallel_sweep(momentum_accel,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6940 (patience 2/7)
+[00:03:38]   [parallel_sweep(momentum_accel,seed=44)] epoch  9/30: train_loss=0.6916 val_loss=0.6937 (patience 7/7)
+[00:03:38] [+] [parallel_sweep(momentum_accel,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker momentum_accel seed=44] train_model elapsed=218.8s
+[00:00:34]   [parallel_sweep(body_ratio,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[00:00:34]   [parallel_sweep(close_location_value,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6934 <- best
+[00:00:58]   [parallel_sweep(close_location_value,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:01:36]   [parallel_sweep(close_location_value,seed=42)] epoch  4/30: train_loss=0.6927 val_loss=0.6932 <- best
+[worker body_ratio seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(body_ratio,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:00:57]   [parallel_sweep(close_location_value,seed=46)] epoch  2/30: train_loss=0.6932 val_loss=0.6933 <- best
+[00:01:59]   [parallel_sweep(close_location_value,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6932 <- best
+[00:02:00]   [parallel_sweep(close_location_value,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6940 (patience 4/7)
+[00:02:00]   [parallel_sweep(close_location_value,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6935 (patience 3/7)
+[00:00:38]   [parallel_sweep(body_ratio,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6933 <- best
+[00:03:36]   [parallel_sweep(momentum_accel,seed=45)] epoch  9/30: train_loss=0.6919 val_loss=0.6935 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(momentum_accel,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker momentum_accel seed=45] train_model elapsed=216.2s
+[00:01:46]   [parallel_sweep(body_ratio,seed=42)] epoch  4/30: train_loss=0.6927 val_loss=0.6932 <- best
+[00:03:36]   [parallel_sweep(momentum_accel,seed=46)] epoch  9/30: train_loss=0.6917 val_loss=0.6947 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(momentum_accel,seed=46) seed=46] 学習完了 best_val_loss=0.6934
+[worker momentum_accel seed=46] train_model elapsed=216.6s
+[00:02:10]   [parallel_sweep(close_location_value,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6934 (patience 3/7)
+[worker body_ratio seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(body_ratio,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker body_ratio seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(body_ratio,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:02:07]   [parallel_sweep(body_ratio,seed=42)] epoch  5/30: train_loss=0.6927 val_loss=0.6932 <- best
+[00:02:07]   [parallel_sweep(close_location_value,seed=46)] epoch  5/30: train_loss=0.6927 val_loss=0.6937 (patience 3/7)
+[00:05:51]   [parallel_sweep(momentum_accel,seed=42)] epoch 15/30: train_loss=0.6907 val_loss=0.6942 (patience 7/7)
+[00:05:51] [+] [parallel_sweep(momentum_accel,seed=42) seed=42] 学習完了 best_val_loss=0.6933
+[worker momentum_accel seed=42] train_model elapsed=351.6s
+[00:03:09]   [parallel_sweep(close_location_value,seed=42)] epoch  8/30: train_loss=0.6919 val_loss=0.6932 <- best
+[00:03:09]   [parallel_sweep(close_location_value,seed=43)] epoch  8/30: train_loss=0.6917 val_loss=0.6951 (patience 7/7)
+[00:03:09] [+] [parallel_sweep(close_location_value,seed=43) seed=43] 学習完了 best_val_loss=0.6934
+[worker close_location_value seed=43] train_model elapsed=189.8s
+[worker body_ratio seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(body_ratio,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:31]   [parallel_sweep(body_ratio,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[worker adx14 seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(adx14,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:30]   [parallel_sweep(body_ratio,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6931 <- best
+[00:03:30]   [parallel_sweep(close_location_value,seed=44)] epoch  9/30: train_loss=0.6916 val_loss=0.6938 (patience 7/7)
+[00:03:30] [+] [parallel_sweep(close_location_value,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker close_location_value seed=44] train_model elapsed=210.9s
+[00:00:52]   [parallel_sweep(body_ratio,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:02:06]   [parallel_sweep(body_ratio,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6939 (patience 4/7)
+[00:00:30]   [parallel_sweep(body_ratio,seed=46)] epoch  1/30: train_loss=0.6942 val_loss=0.6933 <- best
+[worker adx14 seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(adx14,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:03:52]   [parallel_sweep(close_location_value,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6940 (patience 2/7)
+[00:00:35]   [parallel_sweep(adx14,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[00:03:38]   [parallel_sweep(close_location_value,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6935 (patience 7/7)
+[00:03:38] [+] [parallel_sweep(close_location_value,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker close_location_value seed=45] train_model elapsed=218.3s
+[00:00:54]   [parallel_sweep(body_ratio,seed=46)] epoch  2/30: train_loss=0.6932 val_loss=0.6932 <- best
+[00:00:37]   [parallel_sweep(adx14,seed=43)] epoch  1/30: train_loss=0.6940 val_loss=0.6933 <- best
+[00:03:36]   [parallel_sweep(close_location_value,seed=46)] epoch  9/30: train_loss=0.6918 val_loss=0.6943 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(close_location_value,seed=46) seed=46] 学習完了 best_val_loss=0.6933
+[worker close_location_value seed=46] train_model elapsed=217.0s
+[worker adx14 seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(adx14,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:01:20]   [parallel_sweep(adx14,seed=42)] epoch  3/30: train_loss=0.6928 val_loss=0.6933 <- best
+[worker adx14 seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(adx14,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:03:58]   [parallel_sweep(body_ratio,seed=42)] epoch 10/30: train_loss=0.6918 val_loss=0.6937 (patience 5/7)
+[00:02:01]   [parallel_sweep(body_ratio,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6935 (patience 4/7)
+[00:02:00]   [parallel_sweep(body_ratio,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6934 (patience 3/7)
+[00:03:14]   [parallel_sweep(body_ratio,seed=43)] epoch  8/30: train_loss=0.6919 val_loss=0.6946 (patience 7/7)
+[00:03:14] [+] [parallel_sweep(body_ratio,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker body_ratio seed=43] train_model elapsed=194.8s
+[00:00:32]   [parallel_sweep(adx14,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[worker adx14 seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(adx14,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:02:01]   [parallel_sweep(body_ratio,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6937 (patience 3/7)
+[00:00:34]   [parallel_sweep(adx14,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[00:00:54]   [parallel_sweep(adx14,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:02:06]   [parallel_sweep(adx14,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6932 <- best
+[00:04:44]   [parallel_sweep(body_ratio,seed=42)] epoch 12/30: train_loss=0.6913 val_loss=0.6944 (patience 7/7)
+[00:04:44] [+] [parallel_sweep(body_ratio,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker body_ratio seed=42] train_model elapsed=284.2s
+[00:00:58]   [parallel_sweep(adx14,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6931 <- best
+[00:05:46]   [parallel_sweep(close_location_value,seed=42)] epoch 15/30: train_loss=0.6906 val_loss=0.6941 (patience 7/7)
+[00:05:46] [+] [parallel_sweep(close_location_value,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker close_location_value seed=42] train_model elapsed=346.5s
+[00:00:35]   [parallel_sweep(adx14,seed=46)] epoch  1/30: train_loss=0.6942 val_loss=0.6933 <- best
+[worker volume_accel seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_accel,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:02:07]   [parallel_sweep(adx14,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6938 (patience 4/7)
+[worker volume_accel seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_accel,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:03:08]   [parallel_sweep(body_ratio,seed=44)] epoch  8/30: train_loss=0.6919 val_loss=0.6933 (patience 7/7)
+[00:03:08] [+] [parallel_sweep(body_ratio,seed=44) seed=44] 学習完了 best_val_loss=0.6932
+[worker body_ratio seed=44] train_model elapsed=188.5s
+[worker volume_accel seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_accel,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:30]   [parallel_sweep(volume_accel,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[00:03:29]   [parallel_sweep(body_ratio,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6936 (patience 7/7)
+[00:03:29] [+] [parallel_sweep(body_ratio,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker body_ratio seed=45] train_model elapsed=209.8s
+[00:00:30]   [parallel_sweep(volume_accel,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6934 <- best
+[00:02:01]   [parallel_sweep(adx14,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6934 (patience 3/7)
+[00:03:11]   [parallel_sweep(adx14,seed=42)] epoch  8/30: train_loss=0.6920 val_loss=0.6932 <- best
+[worker volume_accel seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_accel,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:03:31]   [parallel_sweep(body_ratio,seed=46)] epoch  9/30: train_loss=0.6916 val_loss=0.6952 (patience 7/7)
+[00:03:31] [+] [parallel_sweep(body_ratio,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker body_ratio seed=46] train_model elapsed=211.1s
+[00:02:03]   [parallel_sweep(adx14,seed=45)] epoch  5/30: train_loss=0.6927 val_loss=0.6933 (patience 3/7)
+[00:00:34]   [parallel_sweep(volume_accel,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6932 <- best
+[00:00:52]   [parallel_sweep(volume_accel,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6933 <- best
+[worker volume_accel seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_accel,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:03:18]   [parallel_sweep(adx14,seed=43)] epoch  8/30: train_loss=0.6919 val_loss=0.6944 (patience 7/7)
+[00:03:18] [+] [parallel_sweep(adx14,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker adx14 seed=43] train_model elapsed=198.0s
+[00:00:55]   [parallel_sweep(volume_accel,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6931 <- best
+[00:02:45]   [parallel_sweep(adx14,seed=44)] epoch  7/30: train_loss=0.6921 val_loss=0.6930 <- best
+[00:00:31]   [parallel_sweep(volume_accel,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[00:02:02]   [parallel_sweep(adx14,seed=46)] epoch  5/30: train_loss=0.6925 val_loss=0.6940 (patience 4/7)
+[00:03:55]   [parallel_sweep(adx14,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6940 (patience 2/7)
+[worker efficiency_ratio20 seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(efficiency_ratio20,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:01:36]   [parallel_sweep(volume_accel,seed=42)] epoch  4/30: train_loss=0.6927 val_loss=0.6932 <- best
+[00:01:18]   [parallel_sweep(volume_accel,seed=44)] epoch  3/30: train_loss=0.6928 val_loss=0.6931 <- best
+[00:00:32]   [parallel_sweep(volume_accel,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6932 <- best
+[00:00:54]   [parallel_sweep(volume_accel,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6931 <- best
+[00:02:00]   [parallel_sweep(volume_accel,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6931 <- best
+[00:02:02]   [parallel_sweep(volume_accel,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6937 (patience 3/7)
+[00:00:37]   [parallel_sweep(efficiency_ratio20,seed=42)] epoch  1/30: train_loss=0.6938 val_loss=0.6933 <- best
+[00:00:57]   [parallel_sweep(volume_accel,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6932 <- best
+[00:03:37]   [parallel_sweep(adx14,seed=45)] epoch  9/30: train_loss=0.6920 val_loss=0.6936 (patience 7/7)
+[00:03:37] [+] [parallel_sweep(adx14,seed=45) seed=45] 学習完了 best_val_loss=0.6931
+[worker adx14 seed=45] train_model elapsed=217.3s
+[00:02:08]   [parallel_sweep(volume_accel,seed=44)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 2/7)
+[00:03:57]   [parallel_sweep(adx14,seed=44)] epoch 10/30: train_loss=0.6912 val_loss=0.6933 (patience 3/7)
+[00:03:15]   [parallel_sweep(adx14,seed=46)] epoch  8/30: train_loss=0.6917 val_loss=0.6945 (patience 7/7)
+[00:03:15] [+] [parallel_sweep(adx14,seed=46) seed=46] 学習完了 best_val_loss=0.6933
+[worker adx14 seed=46] train_model elapsed=195.8s
+[worker efficiency_ratio20 seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(efficiency_ratio20,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker efficiency_ratio20 seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(efficiency_ratio20,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:01:23]   [parallel_sweep(efficiency_ratio20,seed=42)] epoch  3/30: train_loss=0.6927 val_loss=0.6932 <- best
+[00:02:04]   [parallel_sweep(volume_accel,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6935 (patience 3/7)
+[00:03:10]   [parallel_sweep(volume_accel,seed=42)] epoch  8/30: train_loss=0.6920 val_loss=0.6930 <- best
+[00:02:52]   [parallel_sweep(volume_accel,seed=44)] epoch  7/30: train_loss=0.6922 val_loss=0.6931 <- best
+[00:00:33]   [parallel_sweep(efficiency_ratio20,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6932 <- best
+[00:02:08]   [parallel_sweep(volume_accel,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6936 (patience 3/7)
+[00:05:53]   [parallel_sweep(adx14,seed=42)] epoch 15/30: train_loss=0.6907 val_loss=0.6944 (patience 7/7)
+[00:05:53] [+] [parallel_sweep(adx14,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker adx14 seed=42] train_model elapsed=353.5s
+[00:00:34]   [parallel_sweep(efficiency_ratio20,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6931 <- best
+[00:03:35]   [parallel_sweep(volume_accel,seed=42)] epoch  9/30: train_loss=0.6917 val_loss=0.6929 <- best
+[00:03:16]   [parallel_sweep(volume_accel,seed=44)] epoch  8/30: train_loss=0.6919 val_loss=0.6930 <- best
+[00:03:35]   [parallel_sweep(volume_accel,seed=43)] epoch  9/30: train_loss=0.6918 val_loss=0.6946 (patience 7/7)
+[00:03:35] [+] [parallel_sweep(volume_accel,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker volume_accel seed=43] train_model elapsed=215.8s
+[worker efficiency_ratio20 seed=45] memmap load: train=44.5MB val=17.2MB
+[00:02:11]   [parallel_sweep(efficiency_ratio20,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6933 (patience 2/7)
+[00:00:00]   [parallel_sweep(efficiency_ratio20,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:00:56]   [parallel_sweep(efficiency_ratio20,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:03:56]   [parallel_sweep(volume_accel,seed=42)] epoch 10/30: train_loss=0.6917 val_loss=0.6935 (patience 1/7)
+[worker efficiency_ratio20 seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(efficiency_ratio20,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:05:27]   [parallel_sweep(adx14,seed=44)] epoch 14/30: train_loss=0.6906 val_loss=0.6937 (patience 7/7)
+[00:05:27] [+] [parallel_sweep(adx14,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker adx14 seed=44] train_model elapsed=327.5s
+[00:00:33]   [parallel_sweep(efficiency_ratio20,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[00:03:59]   [parallel_sweep(volume_accel,seed=44)] epoch 10/30: train_loss=0.6914 val_loss=0.6932 (patience 2/7)
+[worker days_since_high20 seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(days_since_high20,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:03:36]   [parallel_sweep(volume_accel,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6938 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(volume_accel,seed=45) seed=45] 学習完了 best_val_loss=0.6931
+[worker volume_accel seed=45] train_model elapsed=216.2s
+[00:00:33]   [parallel_sweep(efficiency_ratio20,seed=46)] epoch  1/30: train_loss=0.6942 val_loss=0.6933 <- best
+[00:00:55]   [parallel_sweep(efficiency_ratio20,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6931 <- best
+[worker days_since_high20 seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(days_since_high20,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:02:02]   [parallel_sweep(efficiency_ratio20,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6937 (patience 4/7)
+[00:03:37]   [parallel_sweep(volume_accel,seed=46)] epoch  9/30: train_loss=0.6917 val_loss=0.6944 (patience 7/7)
+[00:03:37] [+] [parallel_sweep(volume_accel,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker volume_accel seed=46] train_model elapsed=217.5s
+[00:02:02]   [parallel_sweep(efficiency_ratio20,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6933 (patience 3/7)
+[00:00:33]   [parallel_sweep(days_since_high20,seed=42)] epoch  1/30: train_loss=0.6936 val_loss=0.6932 <- best
+[worker days_since_high20 seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(days_since_high20,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:34]   [parallel_sweep(days_since_high20,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6934 <- best
+[00:04:03]   [parallel_sweep(efficiency_ratio20,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6939 (patience 7/7)
+[00:04:03] [+] [parallel_sweep(efficiency_ratio20,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker efficiency_ratio20 seed=42] train_model elapsed=243.1s
+[00:00:58]   [parallel_sweep(days_since_high20,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6933 <- best
+[00:00:36]   [parallel_sweep(days_since_high20,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6931 <- best
+[00:02:05]   [parallel_sweep(efficiency_ratio20,seed=45)] epoch  5/30: train_loss=0.6927 val_loss=0.6932 (patience 3/7)
+[00:05:49]   [parallel_sweep(volume_accel,seed=42)] epoch 15/30: train_loss=0.6908 val_loss=0.6936 (patience 6/7)
+[worker days_since_high20 seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(days_since_high20,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:03:11]   [parallel_sweep(efficiency_ratio20,seed=43)] epoch  8/30: train_loss=0.6919 val_loss=0.6943 (patience 7/7)
+[00:03:11] [+] [parallel_sweep(efficiency_ratio20,seed=43) seed=43] 学習完了 best_val_loss=0.6932
+[worker efficiency_ratio20 seed=43] train_model elapsed=191.9s
+[00:02:04]   [parallel_sweep(efficiency_ratio20,seed=46)] epoch  5/30: train_loss=0.6925 val_loss=0.6939 (patience 4/7)
+[00:06:11]   [parallel_sweep(volume_accel,seed=42)] epoch 16/30: train_loss=0.6906 val_loss=0.6935 (patience 7/7)
+[00:06:11] [+] [parallel_sweep(volume_accel,seed=42) seed=42] 学習完了 best_val_loss=0.6929
+[worker volume_accel seed=42] train_model elapsed=371.3s
+[worker days_since_high20 seed=46] memmap load: train=44.5MB val=17.2MB
+[00:05:52]   [parallel_sweep(volume_accel,seed=44)] epoch 15/30: train_loss=0.6905 val_loss=0.6946 (patience 7/7)
+[00:05:52] [+] [parallel_sweep(volume_accel,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[00:00:00]   [parallel_sweep(days_since_high20,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[worker volume_accel seed=44] train_model elapsed=352.4s
+[00:03:31]   [parallel_sweep(efficiency_ratio20,seed=44)] epoch  9/30: train_loss=0.6916 val_loss=0.6937 (patience 7/7)
+[00:03:31] [+] [parallel_sweep(efficiency_ratio20,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker efficiency_ratio20 seed=44] train_model elapsed=211.3s
+[worker new_high20 seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(new_high20,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker new_high20 seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:29]   [parallel_sweep(days_since_high20,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6933 <- best
+[00:00:00]   [parallel_sweep(new_high20,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:02:01]   [parallel_sweep(days_since_high20,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6932 <- best
+[worker new_high20 seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(new_high20,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:26]   [parallel_sweep(days_since_high20,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6932 <- best
+[00:02:01]   [parallel_sweep(days_since_high20,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6938 (patience 3/7)
+[00:00:51]   [parallel_sweep(days_since_high20,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6930 <- best
+[00:00:28]   [parallel_sweep(new_high20,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[00:00:30]   [parallel_sweep(new_high20,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6933 <- best
+[00:00:51]   [parallel_sweep(days_since_high20,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6932 <- best
+[00:03:09]   [parallel_sweep(efficiency_ratio20,seed=46)] epoch  8/30: train_loss=0.6917 val_loss=0.6942 (patience 7/7)
+[00:03:09] [+] [parallel_sweep(efficiency_ratio20,seed=46) seed=46] 学習完了 best_val_loss=0.6933
+[worker efficiency_ratio20 seed=46] train_model elapsed=189.5s
+[00:02:05]   [parallel_sweep(days_since_high20,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6934 (patience 4/7)
+[00:00:38]   [parallel_sweep(new_high20,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6931 <- best
+[00:03:31]   [parallel_sweep(efficiency_ratio20,seed=45)] epoch  9/30: train_loss=0.6919 val_loss=0.6934 (patience 7/7)
+[00:03:31] [+] [parallel_sweep(efficiency_ratio20,seed=45) seed=45] 学習完了 best_val_loss=0.6931
+[worker efficiency_ratio20 seed=45] train_model elapsed=211.9s
+[worker new_high20 seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(new_high20,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker new_high20 seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(new_high20,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:59]   [parallel_sweep(new_high20,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:00:33]   [parallel_sweep(new_high20,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[00:02:00]   [parallel_sweep(days_since_high20,seed=45)] epoch  5/30: train_loss=0.6927 val_loss=0.6932 (patience 3/7)
+[00:03:33]   [parallel_sweep(days_since_high20,seed=42)] epoch  9/30: train_loss=0.6915 val_loss=0.6931 <- best
+[00:01:38]   [parallel_sweep(new_high20,seed=42)] epoch  4/30: train_loss=0.6926 val_loss=0.6932 <- best
+[00:00:38]   [parallel_sweep(new_high20,seed=46)] epoch  1/30: train_loss=0.6942 val_loss=0.6933 <- best
+[00:02:01]   [parallel_sweep(days_since_high20,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6936 (patience 3/7)
+[00:03:36]   [parallel_sweep(days_since_high20,seed=43)] epoch  9/30: train_loss=0.6917 val_loss=0.6946 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(days_since_high20,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker days_since_high20 seed=43] train_model elapsed=216.3s
+[00:00:58]   [parallel_sweep(new_high20,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6931 <- best
+[00:03:15]   [parallel_sweep(days_since_high20,seed=44)] epoch  8/30: train_loss=0.6918 val_loss=0.6934 (patience 7/7)
+[00:03:15] [+] [parallel_sweep(days_since_high20,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker days_since_high20 seed=44] train_model elapsed=195.7s
+[00:03:58]   [parallel_sweep(days_since_high20,seed=42)] epoch 10/30: train_loss=0.6915 val_loss=0.6940 (patience 1/7)
+[00:02:03]   [parallel_sweep(new_high20,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 1/7)
+[00:02:03]   [parallel_sweep(new_high20,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6939 (patience 4/7)
+[00:01:01]   [parallel_sweep(new_high20,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6932 <- best
+[worker positive_gap_ratio_5 seed=42] memmap load: train=44.5MB val=17.2MB
+[worker positive_gap_ratio_5 seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(positive_gap_ratio_5,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(positive_gap_ratio_5,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:02:08]   [parallel_sweep(new_high20,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6935 (patience 3/7)
+[00:00:34]   [parallel_sweep(positive_gap_ratio_5,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6934 <- best
+[00:00:35]   [parallel_sweep(positive_gap_ratio_5,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6932 <- best
+[00:02:08]   [parallel_sweep(new_high20,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 3/7)
+[00:03:36]   [parallel_sweep(days_since_high20,seed=45)] epoch  9/30: train_loss=0.6920 val_loss=0.6934 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(days_since_high20,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker days_since_high20 seed=45] train_model elapsed=216.5s
+[00:00:59]   [parallel_sweep(positive_gap_ratio_5,seed=43)] epoch  2/30: train_loss=0.6930 val_loss=0.6933 <- best
+[00:03:14]   [parallel_sweep(new_high20,seed=42)] epoch  8/30: train_loss=0.6919 val_loss=0.6932 <- best
+[00:03:13]   [parallel_sweep(new_high20,seed=43)] epoch  8/30: train_loss=0.6919 val_loss=0.6946 (patience 7/7)
+[00:03:13] [+] [parallel_sweep(new_high20,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker new_high20 seed=43] train_model elapsed=193.8s
+[00:02:12]   [parallel_sweep(new_high20,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6937 (patience 3/7)
+[worker positive_gap_ratio_5 seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(positive_gap_ratio_5,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:03:33]   [parallel_sweep(days_since_high20,seed=46)] epoch  9/30: train_loss=0.6918 val_loss=0.6941 (patience 7/7)
+[00:03:33] [+] [parallel_sweep(days_since_high20,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker days_since_high20 seed=46] train_model elapsed=213.6s
+[worker positive_gap_ratio_5 seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(positive_gap_ratio_5,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker positive_gap_ratio_5 seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(positive_gap_ratio_5,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:05:50]   [parallel_sweep(days_since_high20,seed=42)] epoch 15/30: train_loss=0.6906 val_loss=0.6939 (patience 6/7)
+[00:03:41]   [parallel_sweep(new_high20,seed=44)] epoch  9/30: train_loss=0.6917 val_loss=0.6938 (patience 7/7)
+[00:03:41] [+] [parallel_sweep(new_high20,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker new_high20 seed=44] train_model elapsed=221.1s
+[00:00:31]   [parallel_sweep(positive_gap_ratio_5,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6930 <- best
+[00:03:56]   [parallel_sweep(new_high20,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6939 (patience 2/7)
+[00:00:30]   [parallel_sweep(positive_gap_ratio_5,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6933 <- best
+[00:00:35]   [parallel_sweep(positive_gap_ratio_5,seed=46)] epoch  1/30: train_loss=0.6942 val_loss=0.6935 <- best
+[worker gap_follow_through seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_follow_through,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:06:13]   [parallel_sweep(days_since_high20,seed=42)] epoch 16/30: train_loss=0.6903 val_loss=0.6934 (patience 7/7)
+[00:06:13] [+] [parallel_sweep(days_since_high20,seed=42) seed=42] 学習完了 best_val_loss=0.6931
+[worker days_since_high20 seed=42] train_model elapsed=373.0s
+[00:02:04]   [parallel_sweep(positive_gap_ratio_5,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6937 (patience 3/7)
+[00:00:53]   [parallel_sweep(positive_gap_ratio_5,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6929 <- best
+[00:02:10]   [parallel_sweep(positive_gap_ratio_5,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6933 (patience 4/7)
+[00:00:52]   [parallel_sweep(positive_gap_ratio_5,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6931 <- best
+[worker gap_follow_through seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_follow_through,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:00:58]   [parallel_sweep(positive_gap_ratio_5,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6933 <- best
+[00:03:35]   [parallel_sweep(new_high20,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6936 (patience 7/7)
+[00:03:35] [+] [parallel_sweep(new_high20,seed=45) seed=45] 学習完了 best_val_loss=0.6931
+[worker new_high20 seed=45] train_model elapsed=215.9s
+[00:00:30]   [parallel_sweep(gap_follow_through,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6933 <- best
+[00:03:39]   [parallel_sweep(new_high20,seed=46)] epoch  9/30: train_loss=0.6918 val_loss=0.6943 (patience 7/7)
+[00:03:39] [+] [parallel_sweep(new_high20,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker new_high20 seed=46] train_model elapsed=219.1s
+[worker gap_follow_through seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_follow_through,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker gap_follow_through seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_follow_through,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:00:30]   [parallel_sweep(gap_follow_through,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6933 <- best
+[00:00:32]   [parallel_sweep(gap_follow_through,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6930 <- best
+[00:02:00]   [parallel_sweep(positive_gap_ratio_5,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6933 (patience 3/7)
+[00:00:54]   [parallel_sweep(gap_follow_through,seed=43)] epoch  2/30: train_loss=0.6930 val_loss=0.6933 <- best
+[00:02:00]   [parallel_sweep(positive_gap_ratio_5,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6932 (patience 3/7)
+[00:00:34]   [parallel_sweep(gap_follow_through,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6932 <- best
+[00:03:22]   [parallel_sweep(positive_gap_ratio_5,seed=42)] epoch  8/30: train_loss=0.6920 val_loss=0.6935 (patience 7/7)
+[00:03:22] [+] [parallel_sweep(positive_gap_ratio_5,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker positive_gap_ratio_5 seed=42] train_model elapsed=202.4s
+[00:02:09]   [parallel_sweep(positive_gap_ratio_5,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6939 (patience 3/7)
+[00:03:34]   [parallel_sweep(positive_gap_ratio_5,seed=43)] epoch  9/30: train_loss=0.6918 val_loss=0.6941 (patience 7/7)
+[00:03:34] [+] [parallel_sweep(positive_gap_ratio_5,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker positive_gap_ratio_5 seed=43] train_model elapsed=214.7s
+[00:05:50]   [parallel_sweep(new_high20,seed=42)] epoch 15/30: train_loss=0.6906 val_loss=0.6940 (patience 7/7)
+[00:05:50] [+] [parallel_sweep(new_high20,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker new_high20 seed=42] train_model elapsed=349.7s
+[worker gap_follow_through seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(gap_follow_through,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:55]   [parallel_sweep(gap_follow_through,seed=45)] epoch  2/30: train_loss=0.6932 val_loss=0.6930 <- best
+[worker volume_ma_ratio seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_ma_ratio,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker volume_ma_ratio seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_ma_ratio,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:01:58]   [parallel_sweep(gap_follow_through,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6933 (patience 4/7)
+[00:00:28]   [parallel_sweep(gap_follow_through,seed=46)] epoch  1/30: train_loss=0.6942 val_loss=0.6933 <- best
+[00:00:32]   [parallel_sweep(volume_ma_ratio,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6932 <- best
+[00:00:34]   [parallel_sweep(volume_ma_ratio,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6934 <- best
+[00:02:02]   [parallel_sweep(gap_follow_through,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6937 (patience 3/7)
+[00:00:53]   [parallel_sweep(gap_follow_through,seed=46)] epoch  2/30: train_loss=0.6930 val_loss=0.6930 <- best
+[00:02:06]   [parallel_sweep(gap_follow_through,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6934 (patience 4/7)
+[00:03:34]   [parallel_sweep(positive_gap_ratio_5,seed=44)] epoch  9/30: train_loss=0.6916 val_loss=0.6935 (patience 7/7)
+[00:03:34] [+] [parallel_sweep(positive_gap_ratio_5,seed=44) seed=44] 学習完了 best_val_loss=0.6929
+[worker positive_gap_ratio_5 seed=44] train_model elapsed=214.2s
+[00:01:00]   [parallel_sweep(volume_ma_ratio,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6934 <- best
+[00:03:32]   [parallel_sweep(positive_gap_ratio_5,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6935 (patience 7/7)
+[00:03:32] [+] [parallel_sweep(positive_gap_ratio_5,seed=45) seed=45] 学習完了 best_val_loss=0.6931
+[worker positive_gap_ratio_5 seed=45] train_model elapsed=212.8s
+[00:02:06]   [parallel_sweep(gap_follow_through,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6934 (patience 3/7)
+[worker volume_ma_ratio seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_ma_ratio,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker volume_ma_ratio seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_ma_ratio,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:03:45]   [parallel_sweep(positive_gap_ratio_5,seed=46)] epoch  9/30: train_loss=0.6919 val_loss=0.6949 (patience 7/7)
+[00:03:45] [+] [parallel_sweep(positive_gap_ratio_5,seed=46) seed=46] 学習完了 best_val_loss=0.6933
+[worker positive_gap_ratio_5 seed=46] train_model elapsed=225.1s
+[00:03:09]   [parallel_sweep(gap_follow_through,seed=42)] epoch  8/30: train_loss=0.6919 val_loss=0.6934 (patience 7/7)
+[00:03:09] [+] [parallel_sweep(gap_follow_through,seed=42) seed=42] 学習完了 best_val_loss=0.6933
+[worker gap_follow_through seed=42] train_model elapsed=188.8s
+[worker volume_ma_ratio seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(volume_ma_ratio,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[worker vwap_distance seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vwap_distance,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:28]   [parallel_sweep(volume_ma_ratio,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6930 <- best
+[00:00:28]   [parallel_sweep(volume_ma_ratio,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6931 <- best
+[00:01:58]   [parallel_sweep(gap_follow_through,seed=46)] epoch  5/30: train_loss=0.6925 val_loss=0.6936 (patience 3/7)
+[00:02:02]   [parallel_sweep(volume_ma_ratio,seed=42)] epoch  5/30: train_loss=0.6927 val_loss=0.6933 (patience 4/7)
+[00:03:11]   [parallel_sweep(gap_follow_through,seed=44)] epoch  8/30: train_loss=0.6918 val_loss=0.6933 (patience 7/7)
+[00:03:11] [+] [parallel_sweep(gap_follow_through,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker gap_follow_through seed=44] train_model elapsed=191.7s
+[00:02:04]   [parallel_sweep(volume_ma_ratio,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6938 (patience 3/7)
+[00:03:33]   [parallel_sweep(gap_follow_through,seed=43)] epoch  9/30: train_loss=0.6916 val_loss=0.6947 (patience 7/7)
+[00:03:33] [+] [parallel_sweep(gap_follow_through,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker gap_follow_through seed=43] train_model elapsed=213.1s
+[00:00:33]   [parallel_sweep(volume_ma_ratio,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:00:52]   [parallel_sweep(volume_ma_ratio,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:00:52]   [parallel_sweep(volume_ma_ratio,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6930 <- best
+[00:00:34]   [parallel_sweep(vwap_distance,seed=42)] epoch  1/30: train_loss=0.6938 val_loss=0.6934 <- best
+[worker vwap_distance seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vwap_distance,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker vwap_distance seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vwap_distance,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:54]   [parallel_sweep(volume_ma_ratio,seed=46)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[00:01:13]   [parallel_sweep(volume_ma_ratio,seed=44)] epoch  3/30: train_loss=0.6928 val_loss=0.6930 <- best
+[00:03:31]   [parallel_sweep(gap_follow_through,seed=45)] epoch  9/30: train_loss=0.6917 val_loss=0.6936 (patience 7/7)
+[00:03:31] [+] [parallel_sweep(gap_follow_through,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker gap_follow_through seed=45] train_model elapsed=211.1s
+[00:00:33]   [parallel_sweep(vwap_distance,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6934 <- best
+[00:00:33]   [parallel_sweep(vwap_distance,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6931 <- best
+[worker vwap_distance seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vwap_distance,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:03:07]   [parallel_sweep(volume_ma_ratio,seed=42)] epoch  8/30: train_loss=0.6920 val_loss=0.6935 (patience 7/7)
+[00:03:07] [+] [parallel_sweep(volume_ma_ratio,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker volume_ma_ratio seed=42] train_model elapsed=187.3s
+[00:01:58]   [parallel_sweep(volume_ma_ratio,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6933 (patience 2/7)
+[00:01:57]   [parallel_sweep(volume_ma_ratio,seed=45)] epoch  5/30: train_loss=0.6927 val_loss=0.6934 (patience 3/7)
+[00:00:55]   [parallel_sweep(vwap_distance,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:03:26]   [parallel_sweep(gap_follow_through,seed=46)] epoch  9/30: train_loss=0.6917 val_loss=0.6942 (patience 7/7)
+[00:03:26] [+] [parallel_sweep(gap_follow_through,seed=46) seed=46] 学習完了 best_val_loss=0.6930
+[worker gap_follow_through seed=46] train_model elapsed=206.8s
+[worker vwap_distance seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vwap_distance,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:03:29]   [parallel_sweep(volume_ma_ratio,seed=43)] epoch  9/30: train_loss=0.6917 val_loss=0.6947 (patience 7/7)
+[00:03:29] [+] [parallel_sweep(volume_ma_ratio,seed=43) seed=43] 学習完了 best_val_loss=0.6934
+[worker volume_ma_ratio seed=43] train_model elapsed=209.8s
+[00:00:36]   [parallel_sweep(vwap_distance,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6930 <- best
+[00:01:59]   [parallel_sweep(volume_ma_ratio,seed=46)] epoch  5/30: train_loss=0.6927 val_loss=0.6936 (patience 3/7)
+[00:01:59]   [parallel_sweep(vwap_distance,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6934 (patience 4/7)
+[worker ret_rank_20d seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:02]   [parallel_sweep(ret_rank_20d,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker ret_rank_20d seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(ret_rank_20d,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:00:57]   [parallel_sweep(vwap_distance,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6929 <- best
+[00:00:31]   [parallel_sweep(vwap_distance,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:00:34]   [parallel_sweep(ret_rank_20d,seed=42)] epoch  1/30: train_loss=0.6938 val_loss=0.6933 <- best
+[00:00:35]   [parallel_sweep(ret_rank_20d,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6933 <- best
+[00:02:02]   [parallel_sweep(vwap_distance,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6934 (patience 3/7)
+[00:02:09]   [parallel_sweep(vwap_distance,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6941 (patience 4/7)
+[00:03:29]   [parallel_sweep(volume_ma_ratio,seed=45)] epoch  9/30: train_loss=0.6919 val_loss=0.6936 (patience 7/7)
+[00:03:29] [+] [parallel_sweep(volume_ma_ratio,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker volume_ma_ratio seed=45] train_model elapsed=209.7s
+[00:03:11]   [parallel_sweep(vwap_distance,seed=42)] epoch  8/30: train_loss=0.6919 val_loss=0.6936 (patience 7/7)
+[00:03:11] [+] [parallel_sweep(vwap_distance,seed=42) seed=42] 学習完了 best_val_loss=0.6934
+[worker vwap_distance seed=42] train_model elapsed=191.6s
+[worker ret_rank_20d seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(ret_rank_20d,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker ret_rank_20d seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(ret_rank_20d,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:02:08]   [parallel_sweep(vwap_distance,seed=45)] epoch  5/30: train_loss=0.6925 val_loss=0.6932 (patience 3/7)
+[00:03:31]   [parallel_sweep(volume_ma_ratio,seed=46)] epoch  9/30: train_loss=0.6917 val_loss=0.6944 (patience 7/7)
+[00:03:31] [+] [parallel_sweep(volume_ma_ratio,seed=46) seed=46] 学習完了 best_val_loss=0.6931
+[worker volume_ma_ratio seed=46] train_model elapsed=211.1s
+[00:03:51]   [parallel_sweep(volume_ma_ratio,seed=44)] epoch 10/30: train_loss=0.6914 val_loss=0.6932 (patience 7/7)
+[00:03:51] [+] [parallel_sweep(volume_ma_ratio,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker volume_ma_ratio seed=44] train_model elapsed=231.0s
+[worker ret_rank_20d seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(ret_rank_20d,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[worker vol_rank_5d seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vol_rank_5d,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:27]   [parallel_sweep(ret_rank_20d,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[00:00:27]   [parallel_sweep(ret_rank_20d,seed=45)] epoch  1/30: train_loss=0.6940 val_loss=0.6930 <- best
+[00:02:02]   [parallel_sweep(vwap_distance,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6940 (patience 4/7)
+[00:03:19]   [parallel_sweep(vwap_distance,seed=43)] epoch  8/30: train_loss=0.6918 val_loss=0.6947 (patience 7/7)
+[00:03:19] [+] [parallel_sweep(vwap_distance,seed=43) seed=43] 学習完了 best_val_loss=0.6934
+[worker vwap_distance seed=43] train_model elapsed=199.6s
+[00:02:04]   [parallel_sweep(ret_rank_20d,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6932 <- best
+[00:00:32]   [parallel_sweep(ret_rank_20d,seed=46)] epoch  1/30: train_loss=0.6942 val_loss=0.6933 <- best
+[00:02:09]   [parallel_sweep(ret_rank_20d,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6939 (patience 4/7)
+[00:00:31]   [parallel_sweep(vol_rank_5d,seed=42)] epoch  1/30: train_loss=0.6938 val_loss=0.6933 <- best
+[00:00:51]   [parallel_sweep(ret_rank_20d,seed=44)] epoch  2/30: train_loss=0.6932 val_loss=0.6930 <- best
+[00:00:50]   [parallel_sweep(ret_rank_20d,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:03:32]   [parallel_sweep(vwap_distance,seed=44)] epoch  9/30: train_loss=0.6917 val_loss=0.6938 (patience 7/7)
+[00:03:32] [+] [parallel_sweep(vwap_distance,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker vwap_distance seed=44] train_model elapsed=212.4s
+[worker vol_rank_5d seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vol_rank_5d,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker vol_rank_5d seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vol_rank_5d,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:54]   [parallel_sweep(ret_rank_20d,seed=46)] epoch  2/30: train_loss=0.6932 val_loss=0.6932 <- best
+[00:00:31]   [parallel_sweep(vol_rank_5d,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6933 <- best
+[00:03:36]   [parallel_sweep(vwap_distance,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6934 (patience 7/7)
+[00:03:36] [+] [parallel_sweep(vwap_distance,seed=45) seed=45] 学習完了 best_val_loss=0.6929
+[worker vwap_distance seed=45] train_model elapsed=216.3s
+[00:03:12]   [parallel_sweep(vwap_distance,seed=46)] epoch  8/30: train_loss=0.6917 val_loss=0.6946 (patience 7/7)
+[00:03:12] [+] [parallel_sweep(vwap_distance,seed=46) seed=46] 学習完了 best_val_loss=0.6933
+[worker vwap_distance seed=46] train_model elapsed=192.1s
+[00:00:36]   [parallel_sweep(vol_rank_5d,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6931 <- best
+[worker vol_rank_5d seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vol_rank_5d,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker vol_rank_5d seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(vol_rank_5d,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:01:57]   [parallel_sweep(ret_rank_20d,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6932 (patience 3/7)
+[00:01:57]   [parallel_sweep(ret_rank_20d,seed=45)] epoch  5/30: train_loss=0.6925 val_loss=0.6932 (patience 3/7)
+[00:03:20]   [parallel_sweep(ret_rank_20d,seed=43)] epoch  8/30: train_loss=0.6919 val_loss=0.6944 (patience 7/7)
+[00:03:20] [+] [parallel_sweep(ret_rank_20d,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker ret_rank_20d seed=43] train_model elapsed=200.0s
+[00:00:57]   [parallel_sweep(vol_rank_5d,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[worker high20_rank seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(high20_rank,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:31]   [parallel_sweep(vol_rank_5d,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[00:02:01]   [parallel_sweep(vol_rank_5d,seed=42)] epoch  5/30: train_loss=0.6927 val_loss=0.6933 (patience 4/7)
+[00:00:30]   [parallel_sweep(vol_rank_5d,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:02:06]   [parallel_sweep(ret_rank_20d,seed=46)] epoch  5/30: train_loss=0.6927 val_loss=0.6935 (patience 3/7)
+[00:03:54]   [parallel_sweep(ret_rank_20d,seed=42)] epoch 10/30: train_loss=0.6919 val_loss=0.6939 (patience 5/7)
+[00:00:55]   [parallel_sweep(vol_rank_5d,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:00:54]   [parallel_sweep(vol_rank_5d,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6932 <- best
+[00:00:36]   [parallel_sweep(high20_rank,seed=42)] epoch  1/30: train_loss=0.6938 val_loss=0.6932 <- best
+[00:02:02]   [parallel_sweep(vol_rank_5d,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6941 (patience 4/7)
+[00:02:09]   [parallel_sweep(vol_rank_5d,seed=44)] epoch  5/30: train_loss=0.6925 val_loss=0.6935 (patience 3/7)
+[00:04:44]   [parallel_sweep(ret_rank_20d,seed=42)] epoch 12/30: train_loss=0.6915 val_loss=0.6944 (patience 7/7)
+[00:04:44] [+] [parallel_sweep(ret_rank_20d,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker ret_rank_20d seed=42] train_model elapsed=283.2s
+[00:03:14]   [parallel_sweep(vol_rank_5d,seed=42)] epoch  8/30: train_loss=0.6921 val_loss=0.6935 (patience 7/7)
+[00:03:14] [+] [parallel_sweep(vol_rank_5d,seed=42) seed=42] 学習完了 best_val_loss=0.6933
+[worker vol_rank_5d seed=42] train_model elapsed=194.4s
+[00:03:33]   [parallel_sweep(ret_rank_20d,seed=44)] epoch  9/30: train_loss=0.6917 val_loss=0.6937 (patience 7/7)
+[00:03:33] [+] [parallel_sweep(ret_rank_20d,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker ret_rank_20d seed=44] train_model elapsed=213.6s
+[00:03:33]   [parallel_sweep(ret_rank_20d,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6935 (patience 7/7)
+[00:03:33] [+] [parallel_sweep(ret_rank_20d,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker ret_rank_20d seed=45] train_model elapsed=213.6s
+[worker high20_rank seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(high20_rank,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker high20_rank seed=45] memmap load: train=44.5MB val=17.2MB
+[worker high20_rank seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(high20_rank,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker high20_rank seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(high20_rank,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(high20_rank,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:02:01]   [parallel_sweep(vol_rank_5d,seed=45)] epoch  5/30: train_loss=0.6926 val_loss=0.6934 (patience 3/7)
+[00:02:01]   [parallel_sweep(vol_rank_5d,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6940 (patience 3/7)
+[00:03:43]   [parallel_sweep(ret_rank_20d,seed=46)] epoch  9/30: train_loss=0.6918 val_loss=0.6940 (patience 7/7)
+[00:03:43] [+] [parallel_sweep(ret_rank_20d,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker ret_rank_20d seed=46] train_model elapsed=223.3s
+[00:03:08]   [parallel_sweep(vol_rank_5d,seed=43)] epoch  8/30: train_loss=0.6918 val_loss=0.6946 (patience 7/7)
+[00:03:08] [+] [parallel_sweep(vol_rank_5d,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker vol_rank_5d seed=43] train_model elapsed=188.4s
+[00:00:28]   [parallel_sweep(high20_rank,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6933 <- best
+[00:00:28]   [parallel_sweep(high20_rank,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6930 <- best
+[00:00:28]   [parallel_sweep(high20_rank,seed=46)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:00:29]   [parallel_sweep(high20_rank,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[worker market_above_ma25_ratio seed=42] memmap load: train=44.5MB val=17.2MB
+[worker market_above_ma25_ratio seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_above_ma25_ratio,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(market_above_ma25_ratio,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:02:03]   [parallel_sweep(high20_rank,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 4/7)
+[00:00:50]   [parallel_sweep(high20_rank,seed=45)] epoch  2/30: train_loss=0.6932 val_loss=0.6929 <- best
+[00:00:51]   [parallel_sweep(high20_rank,seed=44)] epoch  2/30: train_loss=0.6932 val_loss=0.6930 <- best
+[00:03:35]   [parallel_sweep(vol_rank_5d,seed=44)] epoch  9/30: train_loss=0.6916 val_loss=0.6941 (patience 7/7)
+[00:03:35] [+] [parallel_sweep(vol_rank_5d,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker vol_rank_5d seed=44] train_model elapsed=215.2s
+[00:00:33]   [parallel_sweep(market_above_ma25_ratio,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6929 <- best
+[00:00:33]   [parallel_sweep(market_above_ma25_ratio,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6932 <- best
+[worker market_above_ma25_ratio seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_above_ma25_ratio,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:56]   [parallel_sweep(market_above_ma25_ratio,seed=42)] epoch  2/30: train_loss=0.6930 val_loss=0.6929 <- best
+[00:00:55]   [parallel_sweep(market_above_ma25_ratio,seed=43)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[00:03:33]   [parallel_sweep(vol_rank_5d,seed=45)] epoch  9/30: train_loss=0.6919 val_loss=0.6936 (patience 7/7)
+[00:03:33] [+] [parallel_sweep(vol_rank_5d,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker vol_rank_5d seed=45] train_model elapsed=213.8s
+[00:03:32]   [parallel_sweep(vol_rank_5d,seed=46)] epoch  9/30: train_loss=0.6919 val_loss=0.6945 (patience 7/7)
+[00:03:32] [+] [parallel_sweep(vol_rank_5d,seed=46) seed=46] 学習完了 best_val_loss=0.6932
+[worker vol_rank_5d seed=46] train_model elapsed=212.4s
+[00:03:13]   [parallel_sweep(high20_rank,seed=42)] epoch  8/30: train_loss=0.6919 val_loss=0.6931 <- best
+[00:01:58]   [parallel_sweep(high20_rank,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6939 (patience 4/7)
+[worker market_above_ma25_ratio seed=46] memmap load: train=44.5MB val=17.2MB
+[worker market_above_ma25_ratio seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_above_ma25_ratio,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(market_above_ma25_ratio,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:00:35]   [parallel_sweep(market_above_ma25_ratio,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6932 <- best
+[00:01:57]   [parallel_sweep(high20_rank,seed=45)] epoch  5/30: train_loss=0.6925 val_loss=0.6930 (patience 3/7)
+[00:01:57]   [parallel_sweep(high20_rank,seed=46)] epoch  5/30: train_loss=0.6927 val_loss=0.6937 (patience 4/7)
+[00:01:58]   [parallel_sweep(high20_rank,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6934 (patience 3/7)
+[00:00:58]   [parallel_sweep(market_above_ma25_ratio,seed=44)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[00:00:33]   [parallel_sweep(market_above_ma25_ratio,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:00:34]   [parallel_sweep(market_above_ma25_ratio,seed=46)] epoch  1/30: train_loss=0.6938 val_loss=0.6931 <- best
+[00:04:00]   [parallel_sweep(high20_rank,seed=42)] epoch 10/30: train_loss=0.6917 val_loss=0.6937 (patience 2/7)
+[00:02:06]   [parallel_sweep(market_above_ma25_ratio,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6931 (patience 3/7)
+[00:02:06]   [parallel_sweep(market_above_ma25_ratio,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6937 (patience 3/7)
+[00:00:58]   [parallel_sweep(market_above_ma25_ratio,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6932 <- best
+[00:01:00]   [parallel_sweep(market_above_ma25_ratio,seed=46)] epoch  2/30: train_loss=0.6930 val_loss=0.6931 <- best
+[00:03:10]   [parallel_sweep(high20_rank,seed=43)] epoch  8/30: train_loss=0.6918 val_loss=0.6946 (patience 7/7)
+[00:03:10] [+] [parallel_sweep(high20_rank,seed=43) seed=43] 学習完了 best_val_loss=0.6933
+[worker high20_rank seed=43] train_model elapsed=190.8s
+[00:03:11]   [parallel_sweep(high20_rank,seed=46)] epoch  8/30: train_loss=0.6920 val_loss=0.6946 (patience 7/7)
+[00:03:11] [+] [parallel_sweep(high20_rank,seed=46) seed=46] 学習完了 best_val_loss=0.6933
+[worker high20_rank seed=46] train_model elapsed=191.8s
+[worker market_newhigh20_ratio seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_newhigh20_ratio,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker market_newhigh20_ratio seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_newhigh20_ratio,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:02:08]   [parallel_sweep(market_above_ma25_ratio,seed=44)] epoch  5/30: train_loss=0.6923 val_loss=0.6938 (patience 3/7)
+[00:03:32]   [parallel_sweep(high20_rank,seed=45)] epoch  9/30: train_loss=0.6918 val_loss=0.6932 (patience 7/7)
+[00:03:32] [+] [parallel_sweep(high20_rank,seed=45) seed=45] 学習完了 best_val_loss=0.6929
+[worker high20_rank seed=45] train_model elapsed=212.8s
+[00:03:33]   [parallel_sweep(high20_rank,seed=44)] epoch  9/30: train_loss=0.6916 val_loss=0.6940 (patience 7/7)
+[00:03:33] [+] [parallel_sweep(high20_rank,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker high20_rank seed=44] train_model elapsed=213.5s
+[worker market_newhigh20_ratio seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_newhigh20_ratio,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker market_newhigh20_ratio seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_newhigh20_ratio,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:29]   [parallel_sweep(market_newhigh20_ratio,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6930 <- best
+[00:02:02]   [parallel_sweep(market_above_ma25_ratio,seed=45)] epoch  5/30: train_loss=0.6928 val_loss=0.6932 (patience 3/7)
+[00:02:04]   [parallel_sweep(market_above_ma25_ratio,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 3/7)
+[00:00:35]   [parallel_sweep(market_newhigh20_ratio,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6932 <- best
+[00:03:34]   [parallel_sweep(market_above_ma25_ratio,seed=43)] epoch  9/30: train_loss=0.6918 val_loss=0.6940 (patience 7/7)
+[00:03:34] [+] [parallel_sweep(market_above_ma25_ratio,seed=43) seed=43] 学習完了 best_val_loss=0.6931
+[worker market_above_ma25_ratio seed=43] train_model elapsed=214.5s
+[00:03:35]   [parallel_sweep(market_above_ma25_ratio,seed=42)] epoch  9/30: train_loss=0.6917 val_loss=0.6936 (patience 7/7)
+[00:03:35] [+] [parallel_sweep(market_above_ma25_ratio,seed=42) seed=42] 学習完了 best_val_loss=0.6929
+[worker market_above_ma25_ratio seed=42] train_model elapsed=215.6s
+[00:00:52]   [parallel_sweep(market_newhigh20_ratio,seed=42)] epoch  2/30: train_loss=0.6930 val_loss=0.6930 <- best
+[00:00:32]   [parallel_sweep(market_newhigh20_ratio,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[00:00:33]   [parallel_sweep(market_newhigh20_ratio,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6934 <- best
+[00:00:57]   [parallel_sweep(market_newhigh20_ratio,seed=43)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[worker market_newlow20_ratio seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_newlow20_ratio,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker market_newhigh20_ratio seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_newhigh20_ratio,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:05:50]   [parallel_sweep(high20_rank,seed=42)] epoch 15/30: train_loss=0.6909 val_loss=0.6940 (patience 7/7)
+[00:05:50] [+] [parallel_sweep(high20_rank,seed=42) seed=42] 学習完了 best_val_loss=0.6931
+[worker high20_rank seed=42] train_model elapsed=350.4s
+[00:01:12]   [parallel_sweep(market_newhigh20_ratio,seed=42)] epoch  3/30: train_loss=0.6928 val_loss=0.6929 <- best
+[00:00:54]   [parallel_sweep(market_newhigh20_ratio,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6933 <- best
+[worker market_newlow20_ratio seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_newlow20_ratio,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:01:18]   [parallel_sweep(market_newhigh20_ratio,seed=43)] epoch  3/30: train_loss=0.6928 val_loss=0.6931 <- best
+[00:03:33]   [parallel_sweep(market_above_ma25_ratio,seed=44)] epoch  9/30: train_loss=0.6914 val_loss=0.6952 (patience 7/7)
+[00:03:33] [+] [parallel_sweep(market_above_ma25_ratio,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker market_above_ma25_ratio seed=44] train_model elapsed=213.6s
+[00:00:30]   [parallel_sweep(market_newlow20_ratio,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6930 <- best
+[00:00:30]   [parallel_sweep(market_newhigh20_ratio,seed=46)] epoch  1/30: train_loss=0.6938 val_loss=0.6931 <- best
+[worker market_newlow20_ratio seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_newlow20_ratio,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:01:58]   [parallel_sweep(market_newhigh20_ratio,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6931 (patience 2/7)
+[00:00:53]   [parallel_sweep(market_newlow20_ratio,seed=42)] epoch  2/30: train_loss=0.6930 val_loss=0.6929 <- best
+[00:00:53]   [parallel_sweep(market_newhigh20_ratio,seed=46)] epoch  2/30: train_loss=0.6930 val_loss=0.6931 <- best
+[00:00:35]   [parallel_sweep(market_newlow20_ratio,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6932 <- best
+[00:03:31]   [parallel_sweep(market_above_ma25_ratio,seed=45)] epoch  9/30: train_loss=0.6920 val_loss=0.6933 (patience 7/7)
+[00:03:31] [+] [parallel_sweep(market_above_ma25_ratio,seed=45) seed=45] 学習完了 best_val_loss=0.6932
+[worker market_above_ma25_ratio seed=45] train_model elapsed=211.1s
+[00:03:32]   [parallel_sweep(market_above_ma25_ratio,seed=46)] epoch  9/30: train_loss=0.6920 val_loss=0.6937 (patience 7/7)
+[00:03:32] [+] [parallel_sweep(market_above_ma25_ratio,seed=46) seed=46] 学習完了 best_val_loss=0.6931
+[worker market_above_ma25_ratio seed=46] train_model elapsed=212.5s
+[00:02:03]   [parallel_sweep(market_newhigh20_ratio,seed=43)] epoch  5/30: train_loss=0.6924 val_loss=0.6936 (patience 2/7)
+[worker market_newlow20_ratio seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:56]   [parallel_sweep(market_newlow20_ratio,seed=43)] epoch  2/30: train_loss=0.6932 val_loss=0.6932 <- best
+[00:00:00]   [parallel_sweep(market_newlow20_ratio,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker market_newlow20_ratio seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_newlow20_ratio,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:01:58]   [parallel_sweep(market_newhigh20_ratio,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6936 (patience 4/7)
+[00:00:32]   [parallel_sweep(market_newlow20_ratio,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[00:02:00]   [parallel_sweep(market_newhigh20_ratio,seed=45)] epoch  5/30: train_loss=0.6929 val_loss=0.6932 <- best
+[00:01:19]   [parallel_sweep(market_newlow20_ratio,seed=43)] epoch  3/30: train_loss=0.6929 val_loss=0.6932 <- best
+[00:00:33]   [parallel_sweep(market_newlow20_ratio,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6934 <- best
+[00:00:34]   [parallel_sweep(market_newlow20_ratio,seed=46)] epoch  1/30: train_loss=0.6937 val_loss=0.6931 <- best
+[00:02:02]   [parallel_sweep(market_newhigh20_ratio,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 3/7)
+[00:02:03]   [parallel_sweep(market_newlow20_ratio,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6931 (patience 3/7)
+[00:00:58]   [parallel_sweep(market_newlow20_ratio,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6933 <- best
+[00:01:00]   [parallel_sweep(market_newlow20_ratio,seed=46)] epoch  2/30: train_loss=0.6930 val_loss=0.6931 <- best
+[00:02:09]   [parallel_sweep(market_newlow20_ratio,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6938 (patience 2/7)
+[00:03:14]   [parallel_sweep(market_newhigh20_ratio,seed=44)] epoch  8/30: train_loss=0.6916 val_loss=0.6938 (patience 7/7)
+[00:03:14] [+] [parallel_sweep(market_newhigh20_ratio,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker market_newhigh20_ratio seed=44] train_model elapsed=194.1s
+[00:01:23]   [parallel_sweep(market_newlow20_ratio,seed=45)] epoch  3/30: train_loss=0.6929 val_loss=0.6933 <- best
+[00:01:25]   [parallel_sweep(market_newlow20_ratio,seed=46)] epoch  3/30: train_loss=0.6928 val_loss=0.6931 <- best
+[00:03:57]   [parallel_sweep(market_newhigh20_ratio,seed=42)] epoch 10/30: train_loss=0.6917 val_loss=0.6937 (patience 7/7)
+[00:03:57] [+] [parallel_sweep(market_newhigh20_ratio,seed=42) seed=42] 学習完了 best_val_loss=0.6929
+[worker market_newhigh20_ratio seed=42] train_model elapsed=237.0s
+[worker market_breakout_score seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_breakout_score,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:02:09]   [parallel_sweep(market_newlow20_ratio,seed=44)] epoch  5/30: train_loss=0.6923 val_loss=0.6938 (patience 4/7)
+[00:04:01]   [parallel_sweep(market_newhigh20_ratio,seed=43)] epoch 10/30: train_loss=0.6914 val_loss=0.6943 (patience 7/7)
+[00:04:01] [+] [parallel_sweep(market_newhigh20_ratio,seed=43) seed=43] 学習完了 best_val_loss=0.6931
+[worker market_newhigh20_ratio seed=43] train_model elapsed=241.1s
+[worker market_breakout_score seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_breakout_score,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker market_breakout_score seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_breakout_score,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:02:06]   [parallel_sweep(market_newlow20_ratio,seed=45)] epoch  5/30: train_loss=0.6929 val_loss=0.6932 <- best
+[00:03:58]   [parallel_sweep(market_newhigh20_ratio,seed=45)] epoch 10/30: train_loss=0.6920 val_loss=0.6937 (patience 5/7)
+[00:02:07]   [parallel_sweep(market_newlow20_ratio,seed=46)] epoch  5/30: train_loss=0.6925 val_loss=0.6931 (patience 2/7)
+[00:00:30]   [parallel_sweep(market_breakout_score,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6929 <- best
+[00:03:35]   [parallel_sweep(market_newlow20_ratio,seed=42)] epoch  9/30: train_loss=0.6918 val_loss=0.6935 (patience 7/7)
+[00:03:35] [+] [parallel_sweep(market_newlow20_ratio,seed=42) seed=42] 学習完了 best_val_loss=0.6929
+[worker market_newlow20_ratio seed=42] train_model elapsed=215.4s
+[00:03:35]   [parallel_sweep(market_newhigh20_ratio,seed=46)] epoch  9/30: train_loss=0.6920 val_loss=0.6936 (patience 7/7)
+[00:03:35] [+] [parallel_sweep(market_newhigh20_ratio,seed=46) seed=46] 学習完了 best_val_loss=0.6931
+[worker market_newhigh20_ratio seed=46] train_model elapsed=215.0s
+[00:00:31]   [parallel_sweep(market_breakout_score,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6932 <- best
+[00:00:34]   [parallel_sweep(market_breakout_score,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[worker market_breakout_score seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_breakout_score,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker market_breakout_score seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_breakout_score,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:52]   [parallel_sweep(market_breakout_score,seed=42)] epoch  2/30: train_loss=0.6930 val_loss=0.6929 <- best
+[00:00:51]   [parallel_sweep(market_breakout_score,seed=43)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[00:03:14]   [parallel_sweep(market_newlow20_ratio,seed=44)] epoch  8/30: train_loss=0.6916 val_loss=0.6939 (patience 7/7)
+[00:03:14] [+] [parallel_sweep(market_newlow20_ratio,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker market_newlow20_ratio seed=44] train_model elapsed=194.8s
+[00:04:43]   [parallel_sweep(market_newhigh20_ratio,seed=45)] epoch 12/30: train_loss=0.6916 val_loss=0.6942 (patience 7/7)
+[00:04:43] [+] [parallel_sweep(market_newhigh20_ratio,seed=45) seed=45] 学習完了 best_val_loss=0.6932
+[worker market_newhigh20_ratio seed=45] train_model elapsed=283.1s
+[00:03:58]   [parallel_sweep(market_newlow20_ratio,seed=43)] epoch 10/30: train_loss=0.6914 val_loss=0.6944 (patience 7/7)
+[00:03:58] [+] [parallel_sweep(market_newlow20_ratio,seed=43) seed=43] 学習完了 best_val_loss=0.6932
+[worker market_newlow20_ratio seed=43] train_model elapsed=238.7s
+[00:01:13]   [parallel_sweep(market_breakout_score,seed=43)] epoch  3/30: train_loss=0.6928 val_loss=0.6931 <- best
+[worker market_turnover_z seed=42] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_turnover_z,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[worker market_turnover_z seed=43] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_turnover_z,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[00:00:30]   [parallel_sweep(market_breakout_score,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6934 <- best
+[00:00:29]   [parallel_sweep(market_breakout_score,seed=46)] epoch  1/30: train_loss=0.6937 val_loss=0.6931 <- best
+[worker market_turnover_z seed=44] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_turnover_z,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[00:00:51]   [parallel_sweep(market_breakout_score,seed=45)] epoch  2/30: train_loss=0.6934 val_loss=0.6933 <- best
+[00:00:51]   [parallel_sweep(market_breakout_score,seed=46)] epoch  2/30: train_loss=0.6930 val_loss=0.6931 <- best
+[00:00:28]   [parallel_sweep(market_turnover_z,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6932 <- best
+[00:00:31]   [parallel_sweep(market_turnover_z,seed=42)] epoch  1/30: train_loss=0.6937 val_loss=0.6929 <- best
+[00:01:58]   [parallel_sweep(market_breakout_score,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6931 (patience 3/7)
+[00:01:59]   [parallel_sweep(market_breakout_score,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6937 (patience 2/7)
+[00:00:37]   [parallel_sweep(market_turnover_z,seed=44)] epoch  1/30: train_loss=0.6941 val_loss=0.6932 <- best
+[00:00:54]   [parallel_sweep(market_turnover_z,seed=43)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[00:03:58]   [parallel_sweep(market_newlow20_ratio,seed=45)] epoch 10/30: train_loss=0.6920 val_loss=0.6936 (patience 5/7)
+[00:00:56]   [parallel_sweep(market_turnover_z,seed=42)] epoch  2/30: train_loss=0.6930 val_loss=0.6929 <- best
+[00:04:00]   [parallel_sweep(market_newlow20_ratio,seed=46)] epoch 10/30: train_loss=0.6917 val_loss=0.6935 (patience 7/7)
+[00:04:00] [+] [parallel_sweep(market_newlow20_ratio,seed=46) seed=46] 学習完了 best_val_loss=0.6931
+[worker market_newlow20_ratio seed=46] train_model elapsed=240.3s
+[00:02:04]   [parallel_sweep(market_breakout_score,seed=44)] epoch  5/30: train_loss=0.6924 val_loss=0.6938 (patience 4/7)
+[00:01:00]   [parallel_sweep(market_turnover_z,seed=44)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[worker market_turnover_z seed=45] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_turnover_z,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[00:01:19]   [parallel_sweep(market_turnover_z,seed=42)] epoch  3/30: train_loss=0.6928 val_loss=0.6927 <- best
+[00:02:03]   [parallel_sweep(market_breakout_score,seed=45)] epoch  5/30: train_loss=0.6929 val_loss=0.6932 <- best
+[00:02:03]   [parallel_sweep(market_breakout_score,seed=46)] epoch  5/30: train_loss=0.6926 val_loss=0.6933 (patience 3/7)
+[00:01:24]   [parallel_sweep(market_turnover_z,seed=44)] epoch  3/30: train_loss=0.6927 val_loss=0.6930 <- best
+[00:04:45]   [parallel_sweep(market_newlow20_ratio,seed=45)] epoch 12/30: train_loss=0.6916 val_loss=0.6943 (patience 7/7)
+[00:04:45] [+] [parallel_sweep(market_newlow20_ratio,seed=45) seed=45] 学習完了 best_val_loss=0.6932
+[worker market_newlow20_ratio seed=45] train_model elapsed=285.4s
+[00:00:36]   [parallel_sweep(market_turnover_z,seed=45)] epoch  1/30: train_loss=0.6942 val_loss=0.6936 <- best
+[worker market_turnover_z seed=46] memmap load: train=44.5MB val=17.2MB
+[00:00:00]   [parallel_sweep(market_turnover_z,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:02:03]   [parallel_sweep(market_turnover_z,seed=43)] epoch  5/30: train_loss=0.6923 val_loss=0.6936 (patience 3/7)
+[00:02:06]   [parallel_sweep(market_turnover_z,seed=42)] epoch  5/30: train_loss=0.6926 val_loss=0.6930 (patience 2/7)
+[00:03:14]   [parallel_sweep(market_breakout_score,seed=44)] epoch  8/30: train_loss=0.6916 val_loss=0.6938 (patience 7/7)
+[00:03:14] [+] [parallel_sweep(market_breakout_score,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker market_breakout_score seed=44] train_model elapsed=194.4s
+[00:03:32]   [parallel_sweep(market_breakout_score,seed=42)] epoch  9/30: train_loss=0.6917 val_loss=0.6935 (patience 7/7)
+[00:03:32] [+] [parallel_sweep(market_breakout_score,seed=42) seed=42] 学習完了 best_val_loss=0.6929
+[worker market_breakout_score seed=42] train_model elapsed=212.4s
+[00:00:58]   [parallel_sweep(market_turnover_z,seed=45)] epoch  2/30: train_loss=0.6933 val_loss=0.6931 <- best
+[00:02:09]   [parallel_sweep(market_turnover_z,seed=44)] epoch  5/30: train_loss=0.6923 val_loss=0.6937 (patience 2/7)
+[00:00:32]   [parallel_sweep(market_turnover_z,seed=46)] epoch  1/30: train_loss=0.6938 val_loss=0.6932 <- best
+[00:03:52]   [parallel_sweep(market_breakout_score,seed=43)] epoch 10/30: train_loss=0.6915 val_loss=0.6941 (patience 7/7)
+[00:03:52] [+] [parallel_sweep(market_breakout_score,seed=43) seed=43] 学習完了 best_val_loss=0.6931
+[worker market_breakout_score seed=43] train_model elapsed=232.2s
+[00:00:50]   [parallel_sweep(market_turnover_z,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6930 <- best
+[00:01:37]   [parallel_sweep(market_turnover_z,seed=45)] epoch  4/30: train_loss=0.6928 val_loss=0.6930 <- best
+[00:03:26]   [parallel_sweep(market_breakout_score,seed=46)] epoch  9/30: train_loss=0.6920 val_loss=0.6937 (patience 7/7)
+[00:03:26] [+] [parallel_sweep(market_breakout_score,seed=46) seed=46] 学習完了 best_val_loss=0.6931
+[worker market_breakout_score seed=46] train_model elapsed=206.1s
+[00:01:52]   [parallel_sweep(market_turnover_z,seed=45)] epoch  5/30: train_loss=0.6928 val_loss=0.6930 <- best
+[00:03:42]   [parallel_sweep(market_breakout_score,seed=45)] epoch 10/30: train_loss=0.6920 val_loss=0.6936 (patience 5/7)
+[00:03:15]   [parallel_sweep(market_turnover_z,seed=43)] epoch  9/30: train_loss=0.6917 val_loss=0.6938 (patience 7/7)
+[00:03:15] [+] [parallel_sweep(market_turnover_z,seed=43) seed=43] 学習完了 best_val_loss=0.6931
+[worker market_turnover_z seed=43] train_model elapsed=195.8s
+[00:03:30]   [parallel_sweep(market_turnover_z,seed=42)] epoch 10/30: train_loss=0.6914 val_loss=0.6939 (patience 7/7)
+[00:03:30] [+] [parallel_sweep(market_turnover_z,seed=42) seed=42] 学習完了 best_val_loss=0.6927
+[worker market_turnover_z seed=42] train_model elapsed=210.0s
+[00:01:32]   [parallel_sweep(market_turnover_z,seed=46)] epoch  5/30: train_loss=0.6927 val_loss=0.6932 (patience 3/7)
+[00:04:06]   [parallel_sweep(market_breakout_score,seed=45)] epoch 12/30: train_loss=0.6916 val_loss=0.6941 (patience 7/7)
+[00:04:06] [+] [parallel_sweep(market_breakout_score,seed=45) seed=45] 学習完了 best_val_loss=0.6932
+[worker market_breakout_score seed=45] train_model elapsed=246.1s
+[00:03:25]   [parallel_sweep(market_turnover_z,seed=44)] epoch 10/30: train_loss=0.6911 val_loss=0.6940 (patience 7/7)
+[00:03:25] [+] [parallel_sweep(market_turnover_z,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker market_turnover_z seed=44] train_model elapsed=205.3s
+[00:02:40]   [parallel_sweep(market_turnover_z,seed=45)] epoch 10/30: train_loss=0.6919 val_loss=0.6932 (patience 5/7)
+[00:02:04]   [parallel_sweep(market_turnover_z,seed=46)] epoch  9/30: train_loss=0.6918 val_loss=0.6938 (patience 7/7)
+[00:02:04] [+] [parallel_sweep(market_turnover_z,seed=46) seed=46] 学習完了 best_val_loss=0.6930
+[worker market_turnover_z seed=46] train_model elapsed=124.0s
+[00:02:54]   [parallel_sweep(market_turnover_z,seed=45)] epoch 12/30: train_loss=0.6914 val_loss=0.6938 (patience 7/7)
+[00:02:54] [+] [parallel_sweep(market_turnover_z,seed=45) seed=45] 学習完了 best_val_loss=0.6930
+[worker market_turnover_z seed=45] train_model elapsed=174.7s
+[01:08:43] [greedy] round 1: 学習完了 実時間=3791.3秒
+[01:08:45]     候補=rolling_beta_x_cta_net_norm(stock): アンサンブルPF=1.243 (n=538) [参照=1.512]
+[01:08:47]     候補=rolling_beta_x_cta_net_norm_x_market_vol_regime(stock): アンサンブルPF=1.251 (n=514) [参照=1.512]
+[01:08:50]     候補=cta_net_norm_x_market_vol_regime(macro): アンサンブルPF=1.326 (n=464) [参照=1.512]
+[01:08:52]     候補=pin_dist_ratio_x_cta_net_norm(macro): アンサンブルPF=1.196 (n=356) [参照=1.512]
+[01:08:54]     候補=cta_net_norm_x_low_v2(macro): アンサンブルPF=1.223 (n=363) [参照=1.512]
+[01:08:56]     候補=atr_term_ratio(stock): アンサンブルPF=1.411 (n=568) [参照=1.512]
+[01:08:58]     候補=gap_avg_5d(stock): アンサンブルPF=1.372 (n=441) [参照=1.512]
+[01:09:00]     候補=volume_zscore(stock): アンサンブルPF=1.299 (n=499) [参照=1.512]
+[01:09:02]     候補=relative_strength_5d(stock): アンサンブルPF=1.150 (n=565) [参照=1.512]
+[01:09:04]     候補=rs20(stock): アンサンブルPF=1.438 (n=545) [参照=1.512]
+[01:09:07]     候補=rs60(stock): アンサンブルPF=1.451 (n=578) [参照=1.512]
+[01:09:09]     候補=momentum_accel(stock): アンサンブルPF=1.326 (n=578) [参照=1.512]
+[01:09:11]     候補=close_location_value(stock): アンサンブルPF=1.185 (n=478) [参照=1.512]
+[01:09:13]     候補=body_ratio(stock): アンサンブルPF=1.413 (n=507) [参照=1.512]
+[01:09:15]     候補=adx14(stock): アンサンブルPF=1.285 (n=526) [参照=1.512]
+[01:09:17]     候補=volume_accel(stock): アンサンブルPF=1.334 (n=542) [参照=1.512]
+[01:09:19]     候補=efficiency_ratio20(stock): アンサンブルPF=1.394 (n=604) [参照=1.512]
+[01:09:21]     候補=days_since_high20(stock): アンサンブルPF=1.311 (n=503) [参照=1.512]
+[01:09:23]     候補=new_high20(stock): アンサンブルPF=1.387 (n=531) [参照=1.512]
+[01:09:26]     候補=positive_gap_ratio_5(stock): アンサンブルPF=1.122 (n=408) [参照=1.512]
+[01:09:28]     候補=gap_follow_through(stock): アンサンブルPF=1.059 (n=473) [参照=1.512]
+[01:09:30]     候補=volume_ma_ratio(stock): アンサンブルPF=1.312 (n=537) [参照=1.512]
+[01:09:32]     候補=vwap_distance(stock): アンサンブルPF=1.359 (n=504) [参照=1.512]
+[01:09:34]     候補=ret_rank_20d(stock): アンサンブルPF=1.373 (n=504) [参照=1.512]
+[01:09:37]     候補=vol_rank_5d(stock): アンサンブルPF=1.461 (n=520) [参照=1.512]
+[01:09:39]     候補=high20_rank(stock): アンサンブルPF=1.155 (n=517) [参照=1.512]
+[01:09:41]     候補=market_above_ma25_ratio(macro): アンサンブルPF=1.163 (n=461) [参照=1.512]
+[01:09:43]     候補=market_newhigh20_ratio(macro): アンサンブルPF=1.318 (n=512) [参照=1.512]
+[01:09:45]     候補=market_newlow20_ratio(macro): アンサンブルPF=1.306 (n=493) [参照=1.512]
+[01:09:47]     候補=market_breakout_score(macro): アンサンブルPF=1.252 (n=471) [参照=1.512]
+[01:09:49]     候補=market_turnover_z(macro): アンサンブルPF=1.485 (n=516) [参照=1.512]
+[01:09:49] [greedy] round 1: 改善候補なし(最良=market_turnover_z PF=1.485 <= 参照PF=1.512+margin(0.000))。探索終了
+[01:09:50] ==========================================================================================
+[01:09:50] [greedy] 探索終了: 最終選択集合(stock=9, macro=5)
+[01:09:50] [greedy]   stock=['stock_ret_1d', 'stock_ret_20d', 'rolling_beta', 'vol_ratio_5d', 'overnight_gap', 'dist_from_low20', 'gap_strength_5', 'atr_accel', 'dist_from_high60']
+[01:09:50] [greedy]   macro=['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentum', 'nk_ret_norm']
+[01:09:50] [greedy]   最終アンサンブル日次Top-5 PF=1.512 (baseline=1.512からの改善=0.000)
+[01:09:50] [greedy]   総実時間=4189.7秒 (69.8分)

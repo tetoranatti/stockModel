@@ -31,9 +31,9 @@ FEATURE_TOGGLES = {
     # --- 既存9(株側、本番) ---
     # atr_ratio=FalseはBASELINE_STOCK_COLS(既に除外済み)との整合用——本番の9特徴量には依然含まれる。
     "stock_ret_1d": True,
-    "stock_ret_5d": False,
+    "stock_ret_5d": False, # 悪化
     "stock_ret_20d": True,
-    "atr_ratio": False,
+    "atr_ratio": False, # 悪化
     "rolling_beta": True,
     "vol_ratio_5d": True,
     "overnight_gap": True,
@@ -60,22 +60,26 @@ FEATURE_TOGGLES = {
     "volume_zscore": False,
     "volume_accel": False,  # 悪化
     "volume_ma_ratio": False,
+    "vwap_distance": False,  # 2026-09-23追加: 終値の20日VWAPからの乖離率 悪化
+    "ret_rank_20d": False,   # 2026-09-23追加: stock_ret_20dのユニバース全体横断順位 悪化
+    "vol_rank_5d": False,    # 2026-09-23追加: vol_ratio_5dのユニバース全体横断順位 貪欲法capacity-constrained PFでは改善したがtrades数を揃えたevaluate_topn_curveでは全TopN・全制約で悪化、n-vs-PFアーティファクトと判断し不採用
+    "high20_rank": False,    # 2026-09-23追加: dist_from_high20のユニバース全体横断順位 悪化
     "close_location_value": False,
     "body_ratio": False,
-    "adx14": False,  # 改善
-    "efficiency_ratio20": False,  # 改善
+    "adx14": False,  # 悪化
+    "efficiency_ratio20": False,
     "days_since_high20": False,
     "new_high20": False,
-    "positive_gap_ratio_5": False,  # 改善
+    "positive_gap_ratio_5": False,  # 悪化
     "gap_follow_through": False,  # 悪化
     # --- マクロ候補(usdjpy_chgのみIC通過) ---
     "usdjpy_chg": False,  # 悪化
     "market_vol_regime": False,
-    "vix_overnight_chg": False,
+    "vix_overnight_chg": False, #悪化
     "nk225_ret_5d": False,  # 単一シード平均は改善するが、アンサンブル実運用は悪化
     "topix_ret_5d": False,
     # --- マージン残高候補(margin_ratio_levelのみIC通過) ---
-    "margin_ratio_level": False,  # seed平均とMaxDDは悪化するが、アンサンブル実運用では改善
+    "margin_ratio_level": False,  # 悪化
     "margin_ratio_zscore_12w": False,
     "margin_buy_chg_1w": False,
     "margin_short_chg_1w": False,
@@ -90,12 +94,12 @@ FEATURE_TOGGLES = {
     "pin_dist_ratio_x_cta_net_norm": False,
     "rolling_beta_x_cta_net_norm_x_market_vol_regime": False,
     # --- LOWボラ限定候補(regime_risk_modelの拡大窓is_low版、look-ahead無し) ---
-    "cta_net_norm_x_low_v2": False,
+    "cta_net_norm_x_low_v2": False, #悪化
     # --- 市場breadth候補(2026-09-21追加、ユーザー提案。未検証) ---
     "market_above_ma25_ratio": False,
     "market_newhigh20_ratio": False,
     "market_newlow20_ratio": False,
-    "market_breakout_score": False,
+    "market_breakout_score": False, #悪化
     "market_turnover_z": False,
 }
 

@@ -6,13 +6,29 @@ const { clipboard } = require('electron');
 // 修正後: index.html起点に合わせて ./src/ を指定
 const { fetchStockDetails } = require('./src/api');
 const { initChart, updateChartData } = require('./src/chart');
-const { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta, loadTrackingLog } = require('./src/data');
+const { loadScreenedCsv, loadShortScreenedCsv, loadMacroFlowSignal, loadScreeningMeta, loadTrackingLog } = require('./src/data');
 const { runFullPipeline } = require('./src/runner');
 
 // プロジェクトルート（F:\stockModel）へのパス
 const BASE_DIR = path.resolve(__dirname, '..');
 
-let rawRecords = [];
+// pipeline/run_dynamic_regime_screening_v8.py の SHORT_DAILY_TOPN と同じ値
+// ([[regime_gated_long_short_blend_2026-09-24]]で検証済みの設定)。ショートCSVは
+// 既にev_score降順でソート済みなので、先頭からこの件数が実際にその日ショートする銘柄。
+const SHORT_DAILY_TOPN = 5;
+
+// final_regime_screened_v8_short.csvのev_scoreはPython側で丸めずに書き出されており
+// (ロング側のev_scoreは既に丸め済み)、生の浮動小数点(例: 0.3140000104904163)がそのまま
+// 表示されてしまうため、ショート側の表示箇所ではこのヘルパーで揃える。
+function fmtEv(v) {
+  return (parseFloat(v) || 0).toFixed(2);
+}
+
+let longRawRecords = [];
+let shortRawRecords = [];
+let shortTop5Tickers = new Set();
+let currentSide = 'long'; // 'long' | 'short' — メインテーブルで現在表示中のモデル
+let rawRecords = [];      // 現在表示中サイドのレコード(switchSide()で参照を切替)
 let filteredRecords = [];
 let selectedIndex = -1;
 let selectedItem = null;
@@ -60,34 +76,67 @@ function updateMacroRegimeBadge() {
 }
 
 // 空売り機会モデル(short_edge)バッジ: 「翌日TOPIXが下落する確率」の日次集約モデル。
-// PESSIMISTIC(市場悲観)判定の日はSTRONG BUYでも勝率が73%→44%まで落ちることを
-// バックテストで確認済みで、ロングのsize_factorを事後的に縮小(0.5倍)するのに使っている
-// (地合い危険度モデルと同じ発想・同じ後処理パターン。空売り実行自体はしない)。
+// 2026-09-24以前はこのスコアでロングのsize_factorを事後的に縮小していたが、実際に
+// ショートポジションを建てるモメンタムレジームゲート(updateMomentumRegimeBadge)に
+// 役割が統合され、ロングサイズ調整としての効果は無効化された(算出・記録は監視用に継続、
+// [[feedback_keep_rejected_experiment_code]])。そのため大口手口フローバッジと同じ
+// 「参考表示のみ」の目立たないトーンに格下げする。
 function updateShortEdgeBadge() {
   const badge = document.getElementById('short-edge-badge');
   if (!badge) return;
   const meta = loadScreeningMeta(BASE_DIR);
   const shortEdge = meta && meta.shortEdge;
+  badge.className = 'regime-badge flow-badge-normal';
+  badge.title = 'このスコアはサイジングに使用していません(参考表示のみ、実際の判断はモメンタムレジームゲートが行います)';
 
   if (!shortEdge || shortEdge.score === null || shortEdge.score === undefined) {
-    badge.className = 'regime-badge regime-neutral';
-    badge.innerText = '📉 空売り機会: データなし';
+    badge.innerText = '📉 空売り機会: データなし (参考)';
     return;
   }
 
   const scoreStr = (parseFloat(shortEdge.score) || 0).toFixed(2);
-  const sizeStr = `×${(parseFloat(shortEdge.size_mult) || 1.0).toFixed(2)}`;
-  const label = `📉 空売り機会 ${shortEdge.zone} (翌日TOPIX下落確率=${scoreStr}) ロングサイズ${sizeStr}`;
+  badge.innerText = `📉 空売り機会 ${shortEdge.zone} (翌日TOPIX下落確率=${scoreStr}) (参考)`;
+}
 
-  if (shortEdge.zone === 'OPTIMISTIC') {
+// モメンタムレジームゲート(NK225 20日モメンタム)バッジ: run_dynamic_regime_screening_v8.py
+// のdetermine_capital_split()が実際にロング/ショートの資金配分を決めている判定を表示する
+// ([[regime_gated_long_short_blend_2026-09-24]]、5-fold walk-forward検証済み)。
+// HIGH=上昇モメンタム強→ロング有利(ショート資金0)、LOW=弱い/下落気味→ショート有利
+// (ロング資金0)という強めのゲートである点に注意。
+function updateMomentumRegimeBadge() {
+  const badge = document.getElementById('momentum-regime-badge');
+  if (!badge) return;
+  const meta = loadScreeningMeta(BASE_DIR);
+  const mr = meta && meta.momentumRegime;
+
+  if (!mr) {
+    badge.className = 'regime-badge regime-neutral';
+    badge.innerText = '⚖️ モメンタムレジーム: データなし';
+    return;
+  }
+
+  const wLongPct = Math.round((parseFloat(mr.w_long) || 0) * 100);
+  const wShortPct = Math.round((parseFloat(mr.w_short) || 0) * 100);
+  badge.innerText = `⚖️ モメンタムレジーム ${mr.zone} (ロング${wLongPct}% / ショート${wShortPct}%)`;
+
+  if (mr.zone === 'HIGH') {
     badge.className = 'regime-badge regime-bull';
-  } else if (shortEdge.zone === 'PESSIMISTIC') {
+  } else if (mr.zone === 'LOW') {
     badge.className = 'regime-badge regime-bear';
   } else {
     badge.className = 'regime-badge regime-neutral';
   }
-  badge.innerText = label;
   badge.title = meta.updatedAt ? `更新: ${meta.updatedAt}` : '';
+}
+
+// 資金入力欄(header)の総資金をモメンタムレジームの重みでロング/ショートに分けるための
+// 補助関数。run_dynamic_regime_screening_v8.pyのcapital_split(capital_long/capital_short)
+// と同じ考え方をUI側の入力値に対して適用する(データが無い場合はUNKNOWN=50/50既定)。
+function getMomentumWeights() {
+  const meta = loadScreeningMeta(BASE_DIR);
+  const mr = meta && meta.momentumRegime;
+  if (!mr) return { zone: 'UNKNOWN', w_long: 0.5, w_short: 0.5 };
+  return mr;
 }
 
 // 大口手口フロー(CTA/JNET)バッジ: バックテストの結果、サイジング判断には現在使用していない
@@ -116,7 +165,9 @@ function updatePositionSize(item) {
   const maxRisk = capital * (riskPct / 100) * sizeFactor;
   const price = parseFloat(item.price);
   const stopPrice = parseFloat(item.stop);
-  const riskPerShare = Math.max(1, price - stopPrice);
+  // ショートはstopがpriceより上にあるため、riskPerShareの向きを反転する
+  // (modules/risk_manager.pyのcalculate_recommended_position()のside="short"と同じ)。
+  const riskPerShare = Math.max(1, currentSide === 'short' ? (stopPrice - price) : (price - stopPrice));
 
   // リスクベース(損切幅から逆算)の株数、信用余力(資金×レバレッジ倍率)から
   // 買える上限株数、1銘柄あたり投資上限(資金×上限%)の3つのうち最小のものを採用する。
@@ -164,11 +215,92 @@ function updatePositionSize(item) {
 
   currentCalc = {
     shares, actualLoss: Math.round(actualLoss), totalCost: totalCost.toFixed(1),
-    riskPerShare: riskPerShare.toFixed(1), sizeFactor, isLeverageCapped, isMaxPosCapped, leverage
+    riskPerShare: riskPerShare.toFixed(1), sizeFactor, isLeverageCapped, isMaxPosCapped, leverage,
+    side: currentSide,
   };
 }
 
-function renderTable(records) {
+const LONG_TABLE_HEADER = `
+  <th style="text-align:left;">コード / 企業名</th>
+  <th>株価</th>
+  <th>EVスコア</th>
+  <th>買勝率</th>
+  <th>損切率</th>
+  <th>β</th>
+  <th>出来高比</th>
+  <th style="text-align:center;">判定</th>
+`;
+const SHORT_TABLE_HEADER = `
+  <th style="text-align:left;">コード / 企業名</th>
+  <th>株価</th>
+  <th>EVスコア</th>
+  <th>空売り勝率</th>
+  <th>損切率</th>
+  <th style="text-align:center;">選抜</th>
+`;
+
+function renderTableHeader(side) {
+  const headRow = document.getElementById('table-head-row');
+  headRow.innerHTML = side === 'short' ? SHORT_TABLE_HEADER : LONG_TABLE_HEADER;
+}
+
+// メインテーブルのロング/ショート切替。final_regime_screened_v8.csv(ロング、判定ゲート
+// あり)とfinal_regime_screened_v8_short.csv(ショート、日次Top-N選抜のみ)はスキーマが
+// 大きく異なるため、テーブルヘッダーごと差し替える。
+function switchSide(side) {
+  currentSide = side;
+  document.getElementById('tab-long').classList.toggle('tab-active', side === 'long');
+  document.getElementById('tab-short').classList.toggle('tab-active', side === 'short');
+  document.getElementById('search-input').value = '';
+  rawRecords = side === 'short' ? shortRawRecords : longRawRecords;
+  filteredRecords = [...rawRecords];
+  renderTableHeader(side);
+  document.getElementById('summary-text').innerText = `表示中: ${filteredRecords.length} 銘柄`;
+  renderTable(filteredRecords, side);
+}
+
+function renderShortTable(records) {
+  const tbody = document.getElementById('table-body');
+  tbody.innerHTML = '';
+  if (records.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 40px; color:#64748b;">該当する銘柄がありません</td></tr>';
+    selectedItem = null;
+    return;
+  }
+
+  records.forEach((record, index) => {
+    const pWin = (parseFloat(record.p_win) || 0) * 100;
+    const isTop5 = shortTop5Tickers.has(record.ticker);
+    const selectBadge = isTop5
+      ? '<span class="badge badge-short-top" title="本日実際にショート対象">対象</span>'
+      : '<span class="badge badge-watch" title="Top5外(候補のみ)">候補</span>';
+
+    const tr = document.createElement('tr');
+    tr.className = 'data-row';
+    tr.innerHTML = `
+      <td style="text-align:left;">
+        <strong>${record.ticker}</strong>
+        <div class="company-name" style="color: #94a3b8; font-size: 11px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${record.companyName || '...'}</div>
+      </td>
+      <td>${parseFloat(record.price).toLocaleString()}</td>
+      <td style="font-weight:bold; color:#f87171;">${fmtEv(record.ev)}R</td>
+      <td>${pWin.toFixed(1)}%</td>
+      <td style="color:#94a3b8;">${(parseFloat(record.p_stop) * 100).toFixed(1)}%</td>
+      <td style="text-align:center;">${selectBadge}</td>
+    `;
+    tr.addEventListener('click', () => selectStockByIndex(index));
+    tbody.appendChild(tr);
+  });
+
+  selectStockByIndex(0);
+}
+
+function renderTable(records, side = currentSide) {
+  if (side === 'short') {
+    renderShortTable(records);
+    return;
+  }
+
   const tbody = document.getElementById('table-body');
   tbody.innerHTML = '';
   if (records.length === 0) {
@@ -243,9 +375,16 @@ async function selectStockByIndex(idx) {
   const marginBadge = document.getElementById('chart-margin-badge');
   const sectorBadge = document.getElementById('chart-sector-badge');
 
-  titleElem.innerText = `${item.companyName || item.ticker} (${item.ticker}) - ${parseFloat(item.price).toLocaleString()} 円`;
+  item.side = currentSide;
+  const sideTag = currentSide === 'short' ? ' [空売り]' : '';
+  titleElem.innerText = `${item.companyName || item.ticker} (${item.ticker}) - ${parseFloat(item.price).toLocaleString()} 円${sideTag}`;
   badgeElem.innerHTML = '';
 
+  // ショート候補CSVにはセクター・需給の列が存在しないため、これらのバッジは非表示にする
+  if (currentSide === 'short') {
+    sectorBadge.style.display = 'none';
+    marginBadge.style.display = 'none';
+  } else {
   if (item.sector_name || item.sector_summary) {
     sectorBadge.style.display = 'inline-flex';
     if (item.sector_shock) {
@@ -292,17 +431,32 @@ async function selectStockByIndex(idx) {
   } else {
     marginBadge.style.display = 'none';
   }
+  }
 
-  const factorText = parseFloat(item.size_factor) < 1.0 ? ` | ロット: ${Math.round(parseFloat(item.size_factor)*100)}%` : '';
-  document.getElementById('chart-meta-info').innerText = 
-    `EV: ${item.ev}R (元: ${item.ev_raw}R) | 消化: ${item.days_to_clear || '-'}日${factorText} | β: ${item.beta} | 5日代金: ${item.turnover}億円`;
+  // target/stopの向きがサイドで逆になるため、ラベル文言も切り替える
+  document.getElementById('tp-label').innerText = currentSide === 'short' ? '利確 (-2ATR):' : '利確 (+2ATR):';
+  document.getElementById('sl-label').innerText = currentSide === 'short' ? '損切 (+1ATR):' : '損切 (-1ATR):';
+  document.getElementById('dip-label').innerText = currentSide === 'short' ? '戻り待ち (+0.5ATR):' : '押し目 (-0.5ATR):';
+  document.getElementById('label-shares').innerText = currentSide === 'short' ? '推奨売り株数' : '推奨購入株数';
+  document.getElementById('label-cost').innerText = currentSide === 'short' ? '概算約定代金(売建)' : '概算約定代金';
+
+  if (currentSide === 'short') {
+    const topTag = shortTop5Tickers.has(item.ticker) ? ' | 本日Top5(空売り対象)' : ' | 候補(Top5外)';
+    document.getElementById('chart-meta-info').innerText =
+      `EV: ${fmtEv(item.ev)}R | 空売り勝率: ${(parseFloat(item.p_win) * 100).toFixed(1)}% | 損切率: ${(parseFloat(item.p_stop) * 100).toFixed(1)}%${topTag}`;
+  } else {
+    const factorText = parseFloat(item.size_factor) < 1.0 ? ` | ロット: ${Math.round(parseFloat(item.size_factor)*100)}%` : '';
+    document.getElementById('chart-meta-info').innerText =
+      `EV: ${item.ev}R (元: ${item.ev_raw}R) | 消化: ${item.days_to_clear || '-'}日${factorText} | β: ${item.beta} | 5日代金: ${item.turnover}億円`;
+  }
   document.getElementById('target-indicators').style.display = 'flex';
   document.getElementById('tp-val').innerText = `${item.target} 円`;
   document.getElementById('sl-val').innerText = `${item.stop} 円`;
 
   const priceVal = parseFloat(item.price);
   const stopVal = parseFloat(item.stop);
-  const dipPrice = Math.round(priceVal - (priceVal - stopVal) * 0.5);
+  // price/stopの中点(サイドの向きに依らず同じ式で「利確方向へ半分進んだ水準」になる)
+  const dipPrice = Math.round((priceVal + stopVal) / 2);
   item.dipPrice = dipPrice;
   document.getElementById('dip-val').innerText = `${dipPrice.toLocaleString()} 円`;
 
@@ -319,7 +473,7 @@ async function selectStockByIndex(idx) {
         const nameSpan = rows[idx].querySelector('.company-name');
         if (nameSpan) nameSpan.innerText = details.companyName;
       }
-      titleElem.innerText = `${details.companyName} (${item.ticker}) - ${parseFloat(item.price).toLocaleString()} 円`;
+      titleElem.innerText = `${details.companyName} (${item.ticker}) - ${parseFloat(item.price).toLocaleString()} 円${sideTag}`;
     }
 
     if (details.earningsDate && details.daysUntilEarnings <= 14) {
@@ -327,7 +481,7 @@ async function selectStockByIndex(idx) {
       badgeElem.innerHTML = `<span class="${badgeClass}">⚠️ 決算発表: ${details.earningsDate} (残${details.daysUntilEarnings}日)</span>`;
     }
 
-    updateChartData(details, parseFloat(item.target), stopVal, dipPrice);
+    updateChartData(details, parseFloat(item.target), stopVal, dipPrice, currentSide);
   } catch (err) {
     console.error('詳細取得エラー:', err);
   } finally {
@@ -337,25 +491,34 @@ async function selectStockByIndex(idx) {
 
 function loadCsvData() {
   const { filename, records } = loadScreenedCsv(BASE_DIR);
-  if (!records.length) {
+  const { records: shortRecords } = loadShortScreenedCsv(BASE_DIR);
+
+  if (!records.length && !shortRecords.length) {
     logTerm(`CSVが見つかりません、またはデータがありません`, 'error');
     return;
   }
   const pathIndicator = document.getElementById('path-indicator');
   if (pathIndicator) pathIndicator.innerText = filename;
 
-  rawRecords = records;
-  filteredRecords = [...rawRecords];
-  document.getElementById('summary-text').innerText = `表示中: ${filteredRecords.length} 銘柄`;
+  longRawRecords = records;
+  shortRawRecords = shortRecords;
+  // ショートCSVは既にev_score降順ソート済み。先頭SHORT_DAILY_TOPN件が本日の実選抜銘柄
+  shortTop5Tickers = new Set(shortRawRecords.slice(0, SHORT_DAILY_TOPN).map(r => r.ticker));
+
   updateMacroRegimeBadge();
+  updateMomentumRegimeBadge();
   updateShortEdgeBadge();
   updateMacroFlowBadge();
-  renderTable(filteredRecords);
-  logTerm(`最新CSVをロード完了: ${rawRecords.length}件`, 'info');
+  switchSide(currentSide);
+  logTerm(`最新CSVをロード完了: ロング${longRawRecords.length}件 / ショート${shortRawRecords.length}件`, 'info');
 }
 
 function copySbiMemo() {
   if (!selectedItem || !currentCalc) return;
+  if (currentSide === 'short') {
+    copySbiMemoShort();
+    return;
+  }
   const cleanCode = selectedItem.ticker.replace('.T', '');
   let marginInfoStr = '';
   if (selectedItem.margin_ratio && selectedItem.margin_ratio !== '') {
@@ -395,6 +558,31 @@ OCO設定:
   logTerm(`SBIメモをコピー: [${cleanCode}]`, 'info');
 }
 
+// copySbiMemo()のショート版。ロングとは発注種別(信用新規売り/信用返済買い)と
+// OCOの利確/損切の向きが逆になる点以外は同じ構成。ショート候補CSVにはセクター・需給の
+// 列が無いため、それらのメモ行は出力しない。
+function copySbiMemoShort() {
+  const cleanCode = selectedItem.ticker.replace('.T', '');
+  const isTop5 = shortTop5Tickers.has(selectedItem.ticker);
+  const sizeNote = currentCalc.sizeFactor < 1.0 ? ` [${Math.round(currentCalc.sizeFactor * 100)}%ロット調整]` : '';
+  const leverageNote = currentCalc.isLeverageCapped ? ` [信用余力上限(${currentCalc.leverage}倍)で制限]`
+    : (currentCalc.isMaxPosCapped ? ' [1銘柄上限で制限]' : '');
+  const memoText =
+`【SBI発注メモ(空売り)】
+銘柄: ${cleanCode} ${selectedItem.companyName || ''}${isTop5 ? '' : ' ※本日Top5外(参考候補)'}
+注文: 翌営業日 引成(大引け成行) 信用新規売り ※本日終値${parseFloat(selectedItem.price).toLocaleString()}円基準でOCO設定
+数量: ${currentCalc.shares > 0 ? currentCalc.shares.toLocaleString() : 100}株${sizeNote}${leverageNote} (概算代金: ${currentCalc.totalCost}万円)
+OCO設定(信用返済):
+  - 利確指値 (-2ATR): ${parseFloat(selectedItem.target).toLocaleString()}円
+  - 損切逆指値 (+1ATR): ${parseFloat(selectedItem.stop).toLocaleString()}円
+想定最大損失: ${currentCalc.actualLoss.toLocaleString()}円 (EV: ${fmtEv(selectedItem.ev)}R)
+理由: 空売りモデルv2 日次Top${SHORT_DAILY_TOPN} EVスコア選抜`;
+
+  clipboard.writeText(memoText);
+  showCopyFeedback('btn-copy-sbi', '✅ コピー完了！', '📋 SBIメモ (C)');
+  logTerm(`SBIメモ(空売り)をコピー: [${cleanCode}]`, 'info');
+}
+
 function copyTickerCode() {
   if (!selectedItem) return;
   const cleanCode = selectedItem.ticker.replace('.T', '');
@@ -420,8 +608,9 @@ function showCopyFeedback(btnId, activeText, defaultText) {
 // ファイルを表示するだけで、UIの入力値を全く見ていなかったのが原因で「レバレッジが
 // 入力値と合わない」不具合になっていた)
 let currentPortfolio = null;
+let currentPortfolioSide = 'long'; // ポートフォリオモーダル内のロング/ショート切替タブ
 
-function buildPortfolioFromCandidates(candidates, capital, riskPct, leverage, maxPositionPct, maxPositions = 20) {
+function buildPortfolioFromCandidates(candidates, capital, riskPct, leverage, maxPositionPct, maxPositions = 20, side = 'long') {
   const maxBuyingPower = capital * leverage;
   const maxPosYen = capital * (maxPositionPct / 100);
   let usedBuyingPower = 0;
@@ -438,7 +627,9 @@ function buildPortfolioFromCandidates(candidates, capital, riskPct, leverage, ma
     const price = parseFloat(item.price);
     const stopPrice = parseFloat(item.stop);
     const sizeFactor = parseFloat(item.size_factor) || 1.0;
-    const riskPerShare = Math.max(1, price - stopPrice);
+    // ショートはstopがpriceより上にあるため、riskPerShareの向きを反転する
+    // (modules/risk_manager.pyのbuild_portfolio()のside="short"と同じ)。
+    const riskPerShare = Math.max(1, side === 'short' ? (stopPrice - price) : (price - stopPrice));
 
     const maxRisk = capital * (riskPct / 100) * sizeFactor;
     const riskBasedShares = Math.floor(maxRisk / (riskPerShare * 100)) * 100;
@@ -474,7 +665,7 @@ function buildPortfolioFromCandidates(candidates, capital, riskPct, leverage, ma
   }
 
   const summary = {
-    capital, leverage, max_buying_power: maxBuyingPower,
+    side, capital, leverage, max_buying_power: maxBuyingPower,
     used_buying_power_yen: Math.round(usedBuyingPower),
     buying_power_usage_pct: maxBuyingPower > 0 ? Math.round(usedBuyingPower / maxBuyingPower * 1000) / 10 : 0,
     total_risk_yen: Math.round(totalRiskYen),
@@ -486,24 +677,56 @@ function buildPortfolioFromCandidates(candidates, capital, riskPct, leverage, ma
 }
 
 function openPortfolioModal() {
-  const overlay = document.getElementById('portfolio-modal-overlay');
+  currentPortfolioSide = 'long';
+  renderPortfolioModal();
+  document.getElementById('portfolio-modal-overlay').hidden = false;
+}
+
+function switchPortfolioSide(side) {
+  currentPortfolioSide = side;
+  renderPortfolioModal();
+}
+
+// ロング/ショートは別枠の資金(モメンタムレジームゲートのcapital_long/capital_short、
+// [[regime_gated_long_short_blend_2026-09-24]])で組むため、資金入力欄の総資金に
+// 現在のレジーム重み(w_long/w_short)を掛けてから配分する
+// (Pythonのrun_dynamic_regime_screening_v8.pyと同じ考え方)。
+function renderPortfolioModal() {
+  const side = currentPortfolioSide;
+  document.getElementById('tab-portfolio-long').classList.toggle('tab-active', side === 'long');
+  document.getElementById('tab-portfolio-short').classList.toggle('tab-active', side === 'short');
+  document.getElementById('portfolio-col3').innerText = side === 'short' ? 'EVスコア' : '判定';
+
   const summaryElem = document.getElementById('portfolio-summary');
   const tbody = document.getElementById('portfolio-table-body');
 
-  const capital = parseFloat(document.getElementById('input-capital').value) || 0;
+  const capitalTotal = parseFloat(document.getElementById('input-capital').value) || 0;
   const riskPct = parseFloat(document.getElementById('input-risk-pct').value) || 0;
   const leverage = parseFloat(document.getElementById('input-leverage').value) || 1.0;
   const maxPositionPct = parseFloat(document.getElementById('input-max-position-pct').value) || 100;
+  const weights = getMomentumWeights();
 
-  // rawRecordsはfinal_regime_screened_v8.csvの読み込み順=既にpriority→ev_score順にソート済み
-  const actionable = rawRecords.filter(r => r.action.includes('STRONG BUY') || r.action.includes('BUY'));
-  const { positions, summary } = buildPortfolioFromCandidates(actionable, capital, riskPct, leverage, maxPositionPct);
-  currentPortfolio = { positions, summary, updatedAt: '' };
+  let candidates, capital, maxPositions, emptyLabel;
+  if (side === 'short') {
+    // shortRawRecordsは既にev_score降順ソート済み。日次Top-Nのみが実際のショート対象
+    candidates = shortRawRecords.slice(0, SHORT_DAILY_TOPN);
+    capital = Math.round(capitalTotal * (parseFloat(weights.w_short) || 0));
+    maxPositions = SHORT_DAILY_TOPN;
+    emptyLabel = 'ショート候補がありません';
+  } else {
+    // longRawRecordsはfinal_regime_screened_v8.csvの読み込み順=既にpriority→ev_score順にソート済み
+    candidates = longRawRecords.filter(r => r.action.includes('STRONG BUY') || r.action.includes('BUY'));
+    capital = Math.round(capitalTotal * (parseFloat(weights.w_long) || 0));
+    maxPositions = 20;
+    emptyLabel = '対象銘柄(STRONG BUY / BUY)がありません';
+  }
 
-  if (actionable.length === 0) {
-    summaryElem.innerHTML = '<span style="color:#64748b;">対象銘柄(STRONG BUY / BUY)がありません</span>';
+  const { positions, summary } = buildPortfolioFromCandidates(candidates, capital, riskPct, leverage, maxPositionPct, maxPositions, side);
+  currentPortfolio = { positions, summary, side, updatedAt: '' };
+
+  if (candidates.length === 0) {
+    summaryElem.innerHTML = `<span style="color:#64748b;">${emptyLabel}</span>`;
     tbody.innerHTML = '';
-    overlay.hidden = false;
     return;
   }
 
@@ -516,6 +739,10 @@ function openPortfolioModal() {
   if (sr.position_limit) skipParts.push(`採用上限到達${sr.position_limit}件`);
   const skipLine = skipParts.length > 0 ? `<div style="margin-top:4px; color:#94a3b8; font-size:11px;">見送り内訳: ${skipParts.join(' / ')}</div>` : '';
 
+  const regimeLine = `<div style="margin-top:6px; color:#64748b; font-size:11px;">`
+    + `資金${capitalTotal.toLocaleString()}円 × レジーム${weights.zone}(${side === 'short' ? 'ショート' : 'ロング'}${Math.round((parseFloat(side === 'short' ? weights.w_short : weights.w_long) || 0) * 100)}%) = `
+    + `${capital.toLocaleString()}円・リスク${riskPct}%・レバレッジ${leverage}倍・1銘柄上限${maxPositionPct}%で計算</div>`;
+
   summaryElem.innerHTML = `
     <div class="portfolio-summary-grid">
       <div class="portfolio-summary-item"><span class="portfolio-summary-label">採用銘柄数</span><span class="portfolio-summary-val">${s.n_positions} / ${s.n_candidates_evaluated}候補</span></div>
@@ -523,7 +750,7 @@ function openPortfolioModal() {
       <div class="portfolio-summary-item"><span class="portfolio-summary-label">使用額 / 上限</span><span class="portfolio-summary-val" style="font-size:12px;">${s.used_buying_power_yen.toLocaleString()}円 / ${Math.round(s.max_buying_power).toLocaleString()}円</span></div>
       <div class="portfolio-summary-item"><span class="portfolio-summary-label">想定最大損失合計</span><span class="portfolio-summary-val" style="color:#f87171;">${s.total_risk_yen.toLocaleString()}円</span></div>
     </div>
-    <div style="margin-top:6px; color:#64748b; font-size:11px;">資金${capital.toLocaleString()}円・リスク${riskPct}%・レバレッジ${leverage}倍・1銘柄上限${maxPositionPct}%で計算(現在の入力値と連動)</div>
+    ${regimeLine}
     ${skipLine}
   `;
 
@@ -534,7 +761,7 @@ function openPortfolioModal() {
       <tr>
         <td style="text-align:left;"><strong>${p.ticker.replace('.T', '')}</strong></td>
         <td>${parseFloat(p.price).toLocaleString()}</td>
-        <td style="text-align:center;">${(p.action || '').replace(/[^A-Za-z ]/g, '').trim()}</td>
+        <td style="text-align:center;">${side === 'short' ? (fmtEv(p.ev) + 'R') : (p.action || '').replace(/[^A-Za-z ]/g, '').trim()}</td>
         <td>${p.recommended_shares.toLocaleString()}株</td>
         <td>${p.estimated_cost_yen.toLocaleString()}円</td>
         <td>${p.estimated_max_loss_yen.toLocaleString()}円</td>
@@ -542,8 +769,6 @@ function openPortfolioModal() {
       </tr>
     `).join('');
   }
-
-  overlay.hidden = false;
 }
 
 function closePortfolioModal() {
@@ -552,18 +777,19 @@ function closePortfolioModal() {
 
 function copyPortfolioMemo() {
   if (!currentPortfolio || !currentPortfolio.positions || currentPortfolio.positions.length === 0) return;
+  const side = currentPortfolio.side || 'long';
   const s = currentPortfolio.summary;
   const lines = currentPortfolio.positions.map(p =>
-    `${p.ticker.replace('.T', '')} ${(p.action || '').replace(/[^A-Za-z ]/g, '').trim()} 翌営業日引成(終値${parseFloat(p.price).toLocaleString()}円基準) ${p.recommended_shares.toLocaleString()}株 (概算${p.estimated_cost_yen.toLocaleString()}円${p.leverage_capped ? ' ※信用上限' : ''})`
+    `${p.ticker.replace('.T', '')} ${side === 'short' ? '信用新規売り' : (p.action || '').replace(/[^A-Za-z ]/g, '').trim()} 翌営業日引成(終値${parseFloat(p.price).toLocaleString()}円基準) ${p.recommended_shares.toLocaleString()}株 (概算${p.estimated_cost_yen.toLocaleString()}円${p.leverage_capped ? ' ※信用上限' : ''})`
   );
   const memoText =
-`【本日のポートフォリオ発注メモ】
+`【本日のポートフォリオ発注メモ(${side === 'short' ? '空売り' : 'ロング'})】
 採用${s.n_positions}銘柄 / 信用余力使用${s.buying_power_usage_pct.toFixed(1)}% / 想定最大損失合計${s.total_risk_yen.toLocaleString()}円
 --------------------------------
 ${lines.join('\n')}`;
   clipboard.writeText(memoText);
   showCopyFeedback('btn-copy-portfolio-memo', '✅ コピー完了！', '📋 一括SBI発注メモをコピー');
-  logTerm(`ポートフォリオメモをコピー: ${s.n_positions}銘柄`, 'info');
+  logTerm(`ポートフォリオメモをコピー(${side === 'short' ? '空売り' : 'ロング'}): ${s.n_positions}銘柄`, 'info');
 }
 
 document.getElementById('btn-show-portfolio').addEventListener('click', openPortfolioModal);
@@ -572,6 +798,12 @@ document.getElementById('btn-copy-portfolio-memo').addEventListener('click', cop
 document.getElementById('portfolio-modal-overlay').addEventListener('click', (e) => {
   if (e.target.id === 'portfolio-modal-overlay') closePortfolioModal();
 });
+document.getElementById('tab-portfolio-long').addEventListener('click', () => switchPortfolioSide('long'));
+document.getElementById('tab-portfolio-short').addEventListener('click', () => switchPortfolioSide('short'));
+
+// --- メインテーブルのロング/ショート切替タブ ---
+document.getElementById('tab-long').addEventListener('click', () => switchSide('long'));
+document.getElementById('tab-short').addEventListener('click', () => switchSide('short'));
 
 // --- トラッキングモーダル ---
 // pipeline/update_tracking_log.pyが蓄積するdata/tracking_log.csv(ポートフォリオ採用
@@ -706,8 +938,10 @@ document.getElementById('btn-copy-code').addEventListener('click', copyTickerCod
 function refreshRiskDependentViews() {
   updatePositionSize(selectedItem);
   // ポートフォリオモーダルを開いたまま資金設定を変えた場合もその場で再計算する
+  // (openPortfolioModal()を呼ぶとタブがロングにリセットされてしまうため、
+  // 表示中のタブを維持したまま再描画するrenderPortfolioModal()を使う)
   if (!document.getElementById('portfolio-modal-overlay').hidden) {
-    openPortfolioModal();
+    renderPortfolioModal();
   }
 }
 document.getElementById('input-capital').addEventListener('input', refreshRiskDependentViews);

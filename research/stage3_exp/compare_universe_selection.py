@@ -141,9 +141,11 @@ def main():
         macro_pool_df, regime_filter=None, regime_labels_for_loss=loss_regime_labels,
         global_split_date_override=shared_split_date,
     )
+    close_price_lookup = {}
     pool_base = m.prepare_backtest_pool(
         m.BASELINE_MACRO_COLS, m.BASELINE_STOCK_COLS, pool, margin_pool, sector_pool,
         macro_pool_df, regime_filter=None, global_split_date_override=shared_split_date,
+        close_price_out=close_price_lookup,
     )
     print(f"[+] train={len(tr0[2])} val={len(va0[2])} backtest_pool={len(pool_base)}")
 
@@ -180,7 +182,7 @@ def main():
     r_ens = m.evaluate(
         d_ens, f"クラスタ均等150銘柄(アンサンブル{len(seeds)}seed) score Top-K",
         min_reliable_n=m.MIN_RELIABLE_N, common_sample_k=m.COMMON_SAMPLE_K,
-        max_concurrent=m.MAX_CONCURRENT_POSITIONS,
+        max_concurrent=m.MAX_CONCURRENT_POSITIONS, close_price_lookup=close_price_lookup,
     )
 
     print("\n" + "=" * 90)
@@ -188,6 +190,7 @@ def main():
     print("=" * 90)
     topn_sector_df = m.evaluate_topn_curve(
         d_ens, topn_list=[1, 3, 5, 10, 20, 30], max_per_sector=m.MAX_PER_SECTOR,
+        close_price_lookup=close_price_lookup,
     )
     print(topn_sector_df.to_string(index=False))
 
@@ -196,6 +199,7 @@ def main():
     print("=" * 90)
     topn_cluster_df = m.evaluate_topn_curve(
         d_ens, topn_list=[1, 3, 5, 10, 20, 30], max_per_cluster=m.MAX_PER_CLUSTER,
+        close_price_lookup=close_price_lookup,
     )
     print(topn_cluster_df.to_string(index=False))
 

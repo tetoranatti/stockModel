@@ -35,7 +35,6 @@ LABEL_MODE等)はすべてstage3_toggle_experiment.pyの現在の値をそのま
 import sys
 import os
 import time
-import pickle
 import tempfile
 import shutil
 
@@ -51,6 +50,7 @@ try:
 except Exception:
     pass
 
+sys.path.insert(0, r"F:\stockModel")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 RESULT_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "greedy_search_log.parquet")
@@ -86,12 +86,19 @@ def build_shared_pools(m):
 
 
 def build_config_dataset(m, stock_cols, macro_cols, pool, margin_pool, sector_pool, macro_pool_df,
-                          loss_regime_labels, shared_split_date):
-    tr, va = m.build_dataset(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_pool_df,
-                              regime_filter=None, regime_labels_for_loss=loss_regime_labels,
-                              global_split_date_override=shared_split_date)
-    pool_bt = m.prepare_backtest_pool(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_pool_df,
-                                       regime_filter=None, global_split_date_override=shared_split_date)
+                          loss_regime_labels, shared_split_date,
+                          build_dataset_fn=None, prepare_backtest_pool_fn=None):
+    """build_dataset_fn/prepare_backtest_pool_fn(2026-09-24追加、ユーザー提案の空売り
+    モデル特徴選定用): 省略時はm.build_dataset/m.prepare_backtest_pool(ロング版、既存動作)。
+    short_exp.data_builder_short.build_dataset_short/prepare_backtest_pool_shortのような
+    同一シグネチャの関数を渡すと、この貪欲法の探索ロジックをそのまま空売り側にも使い回せる。"""
+    build_dataset_fn = build_dataset_fn or m.build_dataset
+    prepare_backtest_pool_fn = prepare_backtest_pool_fn or m.prepare_backtest_pool
+    tr, va = build_dataset_fn(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_pool_df,
+                               regime_filter=None, regime_labels_for_loss=loss_regime_labels,
+                               global_split_date_override=shared_split_date)
+    pool_bt = prepare_backtest_pool_fn(macro_cols, stock_cols, pool, margin_pool, sector_pool, macro_pool_df,
+                                        regime_filter=None, global_split_date_override=shared_split_date)
     return tr, va, pool_bt
 
 
@@ -113,8 +120,7 @@ def train_configs_parallel(m, pss, configs, max_concurrent):
         shared[f"va_{name}"] = va
         shared[f"s_cols_{name}"] = s_cols
         shared[f"m_cols_{name}"] = mc_cols
-    with open(shared_data_path, "wb") as f:
-        pickle.dump(shared, f)
+    pss.dump_shared_training_data(shared_data_path, shared)
 
     jobs, out_paths = [], {}
     for name in configs:
@@ -130,12 +136,23 @@ def train_configs_parallel(m, pss, configs, max_concurrent):
     return out_paths, tmpdir, elapsed
 
 
-def load_baseline_reference(m, pss, pool_base, tr0, va0, shared_split_date, max_concurrent):
+def load_baseline_reference(m, pss, pool_base, tr0, va0, shared_split_date, max_concurrent,
+                             cache_dir_name="baseline_model_cache",
+                             base_stock_cols=None, base_macro_cols=None):
     """既存のbaseline_model_cache機構をそのまま使う。キャッシュ済みならそれを読み込むだけ、
-    無ければ学習してキャッシュに保存する(stage3_toggle_experiment.py::__main__と同じロジック)。"""
+    無ければ学習してキャッシュに保存する(stage3_toggle_experiment.py::__main__と同じロジック)。
+    cache_dir_name(2026-09-24追加): baseline_cache_fingerprintは特徴量・split date等しか
+    見ておらず「ロング/空売り」の違いを区別しないため、同じ特徴量集合・同じsplit dateだと
+    空売り実行時にロング側のキャッシュを誤って再利用してしまう(サイレントな事故)。空売り側は
+    別のcache_dir_name(例: "short_baseline_model_cache")を渡して名前空間を分離する。
+    base_stock_cols/base_macro_cols(2026-09-24追加、空売りモデルの新特徴量探索用): 省略時は
+    m.BASELINE_STOCK_COLS/m.BASELINE_MACRO_COLS(ロング用開始集合、既存動作)。空売り側は
+    SHORT_STOCK_COLS_V2のような既存採用済み集合を渡し、そこを開始点にして探索する。"""
     import torch
+    base_stock_cols = base_stock_cols if base_stock_cols is not None else m.BASELINE_STOCK_COLS
+    base_macro_cols = base_macro_cols if base_macro_cols is not None else m.BASELINE_MACRO_COLS
     fp = m.baseline_cache_fingerprint(len(tr0[2]), len(va0[2]), shared_split_date)
-    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "baseline_model_cache", fp)
+    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", cache_dir_name, fp)
     os.makedirs(cache_dir, exist_ok=True)
     cached_seeds = {s for s in m.SEEDS if os.path.exists(os.path.join(cache_dir, f"state_{s}.pt"))}
     missing = [s for s in m.SEEDS if s not in cached_seeds]
@@ -143,12 +160,11 @@ def load_baseline_reference(m, pss, pool_base, tr0, va0, shared_split_date, max_
         m.log(f"[greedy] baselineキャッシュ命中(fingerprint={fp}): seed={sorted(cached_seeds)}")
     if missing:
         m.log(f"[greedy] baseline未キャッシュのseed={missing}を学習します...")
-        configs = {"base": (tr0, va0, m.BASELINE_STOCK_COLS, m.BASELINE_MACRO_COLS)}
         tmpdir = tempfile.mkdtemp(prefix="greedy_baseline_")
         shared_data_path = os.path.join(tmpdir, "shared_data.pkl")
-        with open(shared_data_path, "wb") as f:
-            pickle.dump({"tr_base": tr0, "va_base": va0, "s_cols_base": m.BASELINE_STOCK_COLS,
-                         "m_cols_base": m.BASELINE_MACRO_COLS}, f)
+        pss.dump_shared_training_data(shared_data_path, {
+            "tr_base": tr0, "va_base": va0, "s_cols_base": base_stock_cols,
+            "m_cols_base": base_macro_cols})
         jobs = [("base", s, shared_data_path, os.path.join(tmpdir, f"state_{s}.pt")) for s in missing]
         pss.run_jobs_parallel(jobs, os.path.abspath(pss.__file__), max_concurrent)
         for s in missing:
@@ -160,7 +176,7 @@ def load_baseline_reference(m, pss, pool_base, tr0, va0, shared_split_date, max_
 
     models = []
     for s in m.SEEDS:
-        model = m.build_model(m.BASELINE_STOCK_COLS, m.BASELINE_MACRO_COLS)
+        model = m.build_model(base_stock_cols, base_macro_cols)
         model.load_state_dict(torch.load(os.path.join(cache_dir, f"state_{s}.pt"), map_location=m.DEVICE))
         model.eval()
         models.append(model)
@@ -168,27 +184,40 @@ def load_baseline_reference(m, pss, pool_base, tr0, va0, shared_split_date, max_
     return models, pf, n
 
 
-def run_greedy_search(margin=0.0, max_concurrent=10, candidates=None):
+def run_greedy_search(margin=0.0, max_concurrent=10, candidates=None,
+                       build_dataset_fn=None, prepare_backtest_pool_fn=None,
+                       cache_dir_name="baseline_model_cache", result_log_path=None,
+                       base_stock_cols=None, base_macro_cols=None):
+    """base_stock_cols/base_macro_cols(2026-09-24追加、空売りモデルの新特徴量探索用):
+    省略時はm.BASELINE_STOCK_COLS/m.BASELINE_MACRO_COLS(ロング用開始集合、既存動作)から
+    探索を始める。空売り側はSHORT_STOCK_COLS_V2(backward_elim_short.pyで採用済みの9特徴量)
+    のような、そちら側で既に確定している集合を渡す。"""
     import torch
     import pandas as pd
-    import stage3_toggle_experiment as m
+    import stage3_exp.experiment_context as m
     import parallel_seed_sweep as pss
+
+    result_log_path = result_log_path or RESULT_LOG_PATH
+    base_stock_cols = base_stock_cols if base_stock_cols is not None else m.BASELINE_STOCK_COLS
+    base_macro_cols = base_macro_cols if base_macro_cols is not None else m.BASELINE_MACRO_COLS
 
     t_start = time.time()
     m.log("[greedy] データプール構築(1回だけ)...")
     pool, margin_pool, sector_pool, macro_pool_df, loss_regime_labels, shared_split_date = build_shared_pools(m)
 
-    tr0, va0, pool_base = build_config_dataset(m, m.BASELINE_STOCK_COLS, m.BASELINE_MACRO_COLS,
+    tr0, va0, pool_base = build_config_dataset(m, base_stock_cols, base_macro_cols,
                                                 pool, margin_pool, sector_pool, macro_pool_df,
-                                                loss_regime_labels, shared_split_date)
+                                                loss_regime_labels, shared_split_date,
+                                                build_dataset_fn, prepare_backtest_pool_fn)
     m.log(f"[greedy] baseline: train={len(tr0[2])} val={len(va0[2])} backtest_pool={len(pool_base)}")
 
     reference_models, reference_pf, reference_n = load_baseline_reference(
-        m, pss, pool_base, tr0, va0, shared_split_date, max_concurrent)
+        m, pss, pool_base, tr0, va0, shared_split_date, max_concurrent, cache_dir_name,
+        base_stock_cols, base_macro_cols)
     m.log(f"[greedy] round 0 (baseline): アンサンブル日次Top-{m.DAILY_TOPN} PF={reference_pf:.3f} (n={reference_n})")
 
-    selected_stock = list(m.BASELINE_STOCK_COLS)
-    selected_macro = list(m.BASELINE_MACRO_COLS)
+    selected_stock = list(base_stock_cols)
+    selected_macro = list(base_macro_cols)
     candidate_pool = candidates if candidates is not None else list(m.FEATURE_TOGGLES)
     remaining = [f for f in candidate_pool if f not in selected_stock and f not in selected_macro]
     m.log(f"[greedy] 候補プール: {len(remaining)}個 -> {remaining}")
@@ -197,7 +226,7 @@ def run_greedy_search(margin=0.0, max_concurrent=10, candidates=None):
                      margin=margin, n_candidates=len(remaining), adopted=True,
                      selected_stock=str(selected_stock), selected_macro=str(selected_macro),
                      elapsed_sec=time.time() - t_start)]
-    _save_history(history)
+    _save_history(history, result_log_path)
 
     round_num = 0
     while remaining:
@@ -211,7 +240,8 @@ def run_greedy_search(margin=0.0, max_concurrent=10, candidates=None):
             else:
                 s_cols, mc_cols = selected_stock, selected_macro + [cand]
             tr, va, pool_bt = build_config_dataset(m, s_cols, mc_cols, pool, margin_pool, sector_pool,
-                                                    macro_pool_df, loss_regime_labels, shared_split_date)
+                                                    macro_pool_df, loss_regime_labels, shared_split_date,
+                                                    build_dataset_fn, prepare_backtest_pool_fn)
             configs[cand] = (tr, va, s_cols, mc_cols)
             meta[cand] = (side, s_cols, mc_cols, pool_bt)
 
@@ -247,7 +277,7 @@ def run_greedy_search(margin=0.0, max_concurrent=10, candidates=None):
                              n_candidates=len(remaining), adopted=adopted,
                              selected_stock=str(meta[best_cand][1]), selected_macro=str(meta[best_cand][2]),
                              elapsed_sec=time.time() - t_start))
-        _save_history(history)
+        _save_history(history, result_log_path)
 
         if adopted:
             m.log(f"[greedy] round {round_num}: 採用 -> {best_cand} "
@@ -286,9 +316,9 @@ def run_greedy_search(margin=0.0, max_concurrent=10, candidates=None):
                 final_pf=reference_pf, baseline_pf=history[0]['pf'], history=history)
 
 
-def _save_history(history):
+def _save_history(history, result_log_path=None):
     import pandas as pd
-    pd.DataFrame(history).to_parquet(RESULT_LOG_PATH, index=False)
+    pd.DataFrame(history).to_parquet(result_log_path or RESULT_LOG_PATH, index=False)
 
 
 if __name__ == "__main__":

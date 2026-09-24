@@ -84,18 +84,22 @@ def build_per_ticker(pool, margin_pool, sector_pool, macro_pool_df, stock_cols):
     return per_ticker_df
 
 
-def compute_global_split_date(valid_dates, regime_filter=None):
+def compute_global_split_date(valid_dates, regime_filter=None, percentile=0.75):
     """train/valの分割を全銘柄共通のカレンダー日で行う(銘柄ごとの75%点だと分割日が
     最大約5.5ヶ月ずれ、out-of-sample性が銘柄間で一貫しなくなるため)。
-    regime_filterを渡すと、regime該当日だけに絞った75%点を返す。"""
+    regime_filterを渡すと、regime該当日だけに絞ったpercentile点を返す。
+    percentile(2026-09-23追加、ユーザー指摘「valとバックテスト期間の重複がどの程度
+    成績に影響するか」を測る実験用): 既定0.75。0.875等を渡すと、val/backtest重複問題を
+    切り分けるための第2の分割点(例: 75%点で真のブラインド期間の開始をさらに区切る)を
+    同じロジックで計算できる。"""
     sorted_dates = pd.DatetimeIndex(sorted(valid_dates))
     if regime_filter is not None:
         regime_ok_global = regime_filter.reindex(sorted_dates).fillna(False).values
         eligible_dates = sorted_dates[regime_ok_global]
         if len(eligible_dates) == 0:
             return sorted_dates[-1] if len(sorted_dates) else pd.Timestamp.max
-        return eligible_dates[int(len(eligible_dates) * 0.75)]
-    return sorted_dates[int(len(sorted_dates) * 0.75)]
+        return eligible_dates[int(len(eligible_dates) * percentile)]
+    return sorted_dates[int(len(sorted_dates) * percentile)]
 
 
 def prepare_ticker_data(
@@ -150,6 +154,7 @@ def build_dataset(
     regime_labels_for_loss=None,
     global_split_date_override=None,
     barrier_regime_labels=None,
+    val_end_date_override=None,
 ):
     """regime_filter: date->bool(True=採用)のpd.Seriesを渡すと、その日付のサンプルだけ
     train/valに採用する(regime別モデル用)。SEQ_LEN分の価格系列window自体はregimeで
@@ -157,7 +162,13 @@ def build_dataset(
     regime_labels_for_loss: date->'LOW'/'MID'/'HIGH'のpd.Seriesを渡すと、各サンプルの
     regime id(0/1/2、不明なら-1)を6番目の要素として返す(NearPairRankingLossRegimeAware用、
     regime_filterとは独立)。
-    barrier_regime_labels: compute_simulated_targets参照。"""
+    barrier_regime_labels: compute_simulated_targets参照。
+    val_end_date_override(2026-09-23追加、ユーザー指摘「valとバックテストが同じ期間で
+    early stopping選択にバックテスト期間の情報が漏れている」の影響度を測る実験用):
+    指定すると、val採用条件に「dates[idx] < val_end_date_override」も追加し、
+    それ以降の日付はtrain/valどちらにも入れず完全に除外する(=checkpoint選択が
+    一切見ない、真にブラインドな期間を作れる)。Noneなら従来通りglobal_split_date以降
+    全てがval。"""
     per_ticker_df, cross_mean, cross_std, valid_dates, global_split_date = (
         prepare_ticker_data(
             macro_cols,
@@ -364,6 +375,15 @@ def build_dataset(
                     tr_tidx.append(cal_tidx)
                     tr_regime.append(r_id)
                 else:
+                    if val_end_date_override is not None and (
+                        dates[idx] >= val_end_date_override
+                        or dates[idx + HOLDING_PERIOD] >= val_end_date_override
+                    ):
+                        # val_end_date_override以降は完全ブラインド期間として除外。
+                        # ラベル参照範囲(idx+HOLDING_PERIOD)がブラインド期間に食い込む
+                        # サンプルもpurge(train側のpurgeと同じ理由——ブラインド期間の
+                        # 情報がval経由でcheckpoint選択に漏れるのを防ぐ)。
+                        continue
                     va_x_s.append(w_s)
                     va_x_m.append(w_m)
                     va_y.append(target)
@@ -401,6 +421,7 @@ def prepare_backtest_pool(
     regime_filter=None,
     global_split_date_override=None,
     barrier_regime_labels=None,
+    close_price_out=None,
 ):
     per_ticker_df, cross_mean, cross_std, valid_dates, global_split_date = (
         prepare_ticker_data(
@@ -437,6 +458,11 @@ def prepare_backtest_pool(
             # エントリー価格前提を統一する。exit_h_daysはMaxDD計算のexit_date算出に必要。
             ret_pcts, exit_h_days = compute_simulated_targets(df, barrier_regime_labels)
             sec_id = TICKER_TO_SECTOR_ID.get(t, 0)  # USE_SECTOR_EMBEDDING用(銘柄固定値)
+            if close_price_out is not None:
+                # diagnostics.compute_max_drawdownの日次時価評価(2026-09-23追加、
+                # ユーザー指摘「未決済ポジションの含み損益」)用にClose価格を渡す。
+                # 既存呼び出し元(close_price_outを渡さない)には一切影響しない。
+                close_price_out[t] = df["Close"]
 
             for idx in range(SEQ_LEN - 1, n_samples - HOLDING_PERIOD):
                 if not valid_ok[idx]:

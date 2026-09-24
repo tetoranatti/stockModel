@@ -6,7 +6,7 @@ TSE33業種による分散制約(select_topn_with_sector_limit)は「同じ業�
 FETCH_DAYS=130営業日・約600銘柄)のリターンからクラスタ分けし、(1) TopN選択時の
 分散制約、(2) 150銘柄ユニバースの再選定、の両方に使う。
 
-2種類の方式を用意:
+3種類の方式を用意:
     - "static_corr"(初期実装): 60日リターン系列の相関から一発で階層クラスタリング。
       直近半年の値動きが常に強く相関するペアをまとめて拾う一方、1回の相関計算だけに
       依存するため期間の取り方に結果が左右されやすい。
@@ -18,6 +18,13 @@ FETCH_DAYS=130営業日・約600銘柄)のリターンからクラスタ分け�
       データソースは fetch_cluster_universe_history.py が作る約2年分の長期キャッシュ
       (data/cache/cluster_daily_bars_raw.parquet、分割調整済み)を優先し、無ければ
       直近6ヶ月分の prices_*.parquet にフォールバックする。
+    - "market_residual_corr"(2026-09-23追加、ユーザー提案): 過去60営業日の日次リターンを
+      候補ユニバース横断面平均(市場代理指標)に対してOLS回帰し、残差系列(市場全体の
+      共動性を除いた「純粋な」値動き)同士の相関から距離(1-corr)を作り、
+      sklearn.cluster.AgglomerativeClustering(metric="precomputed", linkage="average")で
+      まとめる。static_corrと違い市場全体の上げ下げに引きずられる相関(β由来の見かけの
+      共動性)を除いてから距離を測るため、市場全体が一方向に動く局面でもテーマ・業種横断の
+      個別連動性を拾いやすい狙い。
 
 使い方:
     from .cluster_utils import load_cluster_map, select_universe_evenly
@@ -41,6 +48,12 @@ CLUSTER_CACHE_PATH = os.path.join(
 )
 MONTHLY_CLUSTER_CACHE_PATH = os.path.join(
     r"F:\stockModel\research\cache", "_cache_monthly_consensus_clusters.pkl"
+)
+MARKET_RESIDUAL_CLUSTER_CACHE_PATH = os.path.join(
+    r"F:\stockModel\research\cache", "_cache_market_residual_clusters.pkl"
+)
+MARKET_RESIDUAL_SPECTRAL_CACHE_PATH = os.path.join(
+    r"F:\stockModel\research\cache", "_cache_market_residual_spectral_clusters.pkl"
 )
 # fetch_cluster_universe_history.pyが作る長期(既定2年・分割調整済み)キャッシュ
 LONG_HISTORY_CACHE_PATH = os.path.join(CACHE_DIR, "cluster_daily_bars_raw.parquet")
@@ -69,6 +82,10 @@ MARKET_RETURN_WINDOW_DEFAULT = 20  # 月間パフォーマンスの代表horizon
 # これ以上のhorizonはウィンドウ自体が月内を均しているので月末1点のみで十分。
 SHORT_HORIZON_THRESHOLD = 10
 SHORT_HORIZON_SAMPLE_STRIDE = 5  # 月内サンプリング間隔(営業日、週次相当)
+
+# market_residual_corr専用(2026-09-23、ユーザー提案)
+MARKET_RESIDUAL_LOOKBACK_DEFAULT = 60  # 残差回帰・相関算出に使う日次リターンの直近営業日数
+MARKET_RESIDUAL_MIN_OVERLAP = 40  # 残差相関算出に必要な最小共通サンプル数(60日中)
 
 
 def _latest_prices_path():
@@ -119,6 +136,115 @@ def _compute_return_clusters(n_clusters, lookback_days, prices_path=None):
     cluster_map = {t: f"C{lbl}" for t, lbl in zip(corr.columns, labels)}
     liquidity = {t: turnover_mean[t] for t in corr.columns}
 
+    return cluster_map, liquidity
+
+
+def _market_residual_corr_and_liquidity(
+    lookback_days=MARKET_RESIDUAL_LOOKBACK_DEFAULT, prices_path=None
+):
+    """過去lookback_days営業日の日次リターンを候補ユニバース横断面平均(市場代理指標)に
+    対してOLS回帰し、残差系列同士のPearson相関行列を返す(2026-09-23、ユーザー提案)。
+    _compute_market_residual_clusters/_compute_market_residual_spectral_clustersの
+    共通前処理("static_corr"の生リターン相関と違い、市場全体の共動性をβ回帰で除いてから
+    相関を取る点が異なる)。戻り値: (corr DataFrame, {ticker: 平均売買代金})。"""
+    prices_path = prices_path or _latest_prices_path()
+    bars = pd.read_parquet(prices_path)
+    bars.index = pd.to_datetime(bars.index).tz_localize(None)
+
+    tickers = sorted(bars.columns.get_level_values(0).unique())
+    close_wide = {}
+    turnover_mean = {}
+    for t in tickers:
+        try:
+            close = bars[t]["Close"]
+            volume = bars[t]["Volume"]
+        except KeyError:
+            continue
+        close_wide[t] = close
+        turnover_mean[t] = (close * volume).mean()
+
+    close_df = pd.DataFrame(close_wide).sort_index()
+    ret_df = close_df.pct_change(1, fill_method=None).iloc[-(lookback_days + 1):]
+
+    # 候補ユニバース横断面平均を市場リターンの代理指標にする(2026-09-23、ユーザー提案。
+    # monthly_consensusの市場判定と同じ考え方で、外部指数への依存を避ける)
+    market_ret = ret_df.mean(axis=1)
+
+    resid_wide = {}
+    for t in ret_df.columns:
+        pair = pd.concat([ret_df[t], market_ret], axis=1).dropna()
+        if len(pair) < MARKET_RESIDUAL_MIN_OVERLAP:
+            continue
+        x = pair.iloc[:, 1].values
+        y = pair.iloc[:, 0].values
+        beta, alpha = np.polyfit(x, y, deg=1)
+        resid_wide[t] = pd.Series(y - (alpha + beta * x), index=pair.index)
+
+    resid_df = pd.DataFrame(resid_wide)
+    corr = resid_df.corr(min_periods=MARKET_RESIDUAL_MIN_OVERLAP).fillna(0.0)
+    np.fill_diagonal(corr.values, 1.0)
+
+    liquidity = {t: turnover_mean[t] for t in corr.columns}
+    return corr, liquidity
+
+
+def _compute_market_residual_clusters(
+    n_clusters,
+    lookback_days=MARKET_RESIDUAL_LOOKBACK_DEFAULT,
+    prices_path=None,
+    linkage="average",
+):
+    """市場残差相関(_market_residual_corr_and_liquidity)から距離(1-corr)を作り
+    AgglomerativeClustering(metric="precomputed")でn_clusters個にまとめる
+    (2026-09-23、ユーザー提案)。linkage="average"(初期実装、chaining現象で巨大クラスタが
+    1つできやすい)/"complete"(2026-09-23追加、ユーザー提案。各クラスタ内の最大距離を
+    最小化するため、より均等なサイズになりやすい)。
+    {ticker: "C<label>"} と {ticker: 平均売買代金} を返す。"""
+    from sklearn.cluster import AgglomerativeClustering
+
+    corr, liquidity = _market_residual_corr_and_liquidity(lookback_days, prices_path)
+
+    dist = (1.0 - corr).clip(lower=0.0).values
+    dist = (dist + dist.T) / 2.0  # 数値誤差での非対称を解消
+    np.fill_diagonal(dist, 0.0)
+
+    model = AgglomerativeClustering(
+        n_clusters=n_clusters, metric="precomputed", linkage=linkage
+    )
+    labels = model.fit_predict(dist)
+
+    cluster_map = {t: f"C{lbl}" for t, lbl in zip(corr.columns, labels)}
+    return cluster_map, liquidity
+
+
+def _compute_market_residual_spectral_clusters(
+    n_clusters,
+    lookback_days=MARKET_RESIDUAL_LOOKBACK_DEFAULT,
+    prices_path=None,
+    random_state=42,
+):
+    """市場残差相関(_market_residual_corr_and_liquidity)を非負のaffinity行列
+    (負の相関は「類似度0」とみなしクリップ)としてSpectralClusteringに渡す
+    (2026-09-23、ユーザー提案)。階層クラスタリングのchaining現象を避け、グラフの固有値
+    分解ベースでより均等なクラスタサイズになることを期待。
+    {ticker: "C<label>"} と {ticker: 平均売買代金} を返す。"""
+    from sklearn.cluster import SpectralClustering
+
+    corr, liquidity = _market_residual_corr_and_liquidity(lookback_days, prices_path)
+
+    affinity = corr.clip(lower=0.0).values
+    affinity = (affinity + affinity.T) / 2.0
+    np.fill_diagonal(affinity, 1.0)
+
+    model = SpectralClustering(
+        n_clusters=n_clusters,
+        affinity="precomputed",
+        assign_labels="kmeans",
+        random_state=random_state,
+    )
+    labels = model.fit_predict(affinity)
+
+    cluster_map = {t: f"C{lbl}" for t, lbl in zip(corr.columns, labels)}
     return cluster_map, liquidity
 
 
@@ -343,6 +469,57 @@ def compute_monthly_consensus_cluster_map(
     return cluster_map
 
 
+def compute_market_residual_cluster_map(
+    n_clusters=N_CLUSTERS_DEFAULT,
+    lookback_days=MARKET_RESIDUAL_LOOKBACK_DEFAULT,
+    linkage="average",
+    force_rebuild=False,
+):
+    """市場残差相関ベースの階層クラスタリング(_compute_market_residual_clusters)の
+    結果をキャッシュ付きで返す({ticker: "C<label>"})(2026-09-23、ユーザー提案)。"""
+    cache_key = (n_clusters, lookback_days, linkage)
+    if not force_rebuild and os.path.exists(MARKET_RESIDUAL_CLUSTER_CACHE_PATH):
+        with open(MARKET_RESIDUAL_CLUSTER_CACHE_PATH, "rb") as f:
+            cached = pickle.load(f)
+        if cached.get("key") == cache_key:
+            return cached["cluster_map"]
+
+    cluster_map, liquidity = _compute_market_residual_clusters(
+        n_clusters, lookback_days, linkage=linkage
+    )
+    with open(MARKET_RESIDUAL_CLUSTER_CACHE_PATH, "wb") as f:
+        pickle.dump(
+            {"key": cache_key, "cluster_map": cluster_map, "liquidity": liquidity},
+            f,
+        )
+    return cluster_map
+
+
+def compute_market_residual_spectral_cluster_map(
+    n_clusters=N_CLUSTERS_DEFAULT,
+    lookback_days=MARKET_RESIDUAL_LOOKBACK_DEFAULT,
+    force_rebuild=False,
+):
+    """市場残差相関ベースのSpectralClustering(_compute_market_residual_spectral_clusters)
+    の結果をキャッシュ付きで返す({ticker: "C<label>"})(2026-09-23、ユーザー提案)。"""
+    cache_key = (n_clusters, lookback_days)
+    if not force_rebuild and os.path.exists(MARKET_RESIDUAL_SPECTRAL_CACHE_PATH):
+        with open(MARKET_RESIDUAL_SPECTRAL_CACHE_PATH, "rb") as f:
+            cached = pickle.load(f)
+        if cached.get("key") == cache_key:
+            return cached["cluster_map"]
+
+    cluster_map, liquidity = _compute_market_residual_spectral_clusters(
+        n_clusters, lookback_days
+    )
+    with open(MARKET_RESIDUAL_SPECTRAL_CACHE_PATH, "wb") as f:
+        pickle.dump(
+            {"key": cache_key, "cluster_map": cluster_map, "liquidity": liquidity},
+            f,
+        )
+    return cluster_map
+
+
 def _liquidity_from_prices():
     """{ticker: 平均売買代金} を返す(_load_close_volume_wideと同じデータソース選択)。"""
     close_df, volume_df = _load_close_volume_wide()
@@ -360,6 +537,7 @@ def load_cluster_map(
     min_shared_months=MIN_SHARED_MONTHS_DEFAULT,
     month_filter=MONTH_FILTER_DEFAULT,
     market_return_window=MARKET_RETURN_WINDOW_DEFAULT,
+    linkage="average",
     force_rebuild=False,
 ):
     """ticker('XXXX.T') -> クラスタラベル('C1'等) の辞書を返す(_load_sector_mapと同じ形で
@@ -367,6 +545,10 @@ def load_cluster_map(
 
     method="static_corr": 60日リターン相関の一発階層クラスタリング(初期実装)。
     method="monthly_consensus"(既定): 複数horizonリターンの月次KMeans+複数月合意クラスタリング。
+    method="market_residual_corr": 市場残差(横断面平均に対するOLS回帰残差)相関の
+      AgglomerativeClustering(2026-09-23、ユーザー提案)。linkage="average"/"complete"。
+    method="market_residual_spectral": 市場残差相関(負相関はaffinity0にクリップ)を使う
+      SpectralClustering(2026-09-23、ユーザー提案)。
     """
     if method == "monthly_consensus":
         return compute_monthly_consensus_cluster_map(
@@ -377,6 +559,15 @@ def load_cluster_map(
             month_filter=month_filter,
             market_return_window=market_return_window,
             force_rebuild=force_rebuild,
+        )
+    if method == "market_residual_corr":
+        return compute_market_residual_cluster_map(
+            n_clusters=n_clusters, lookback_days=lookback_days, linkage=linkage,
+            force_rebuild=force_rebuild,
+        )
+    if method == "market_residual_spectral":
+        return compute_market_residual_spectral_cluster_map(
+            n_clusters=n_clusters, lookback_days=lookback_days, force_rebuild=force_rebuild,
         )
     if method != "static_corr":
         raise ValueError(f"未対応のmethodです: {method}")
@@ -427,6 +618,8 @@ def select_universe_evenly(
         liquidity = _liquidity_from_prices()
     elif method == "static_corr":
         cluster_map, liquidity = _compute_return_clusters(n_clusters, lookback_days)
+    elif method == "market_residual_corr":
+        cluster_map, liquidity = _compute_market_residual_clusters(n_clusters, lookback_days)
     else:
         raise ValueError(f"未対応のmethodです: {method}")
 

@@ -1,0 +1,160 @@
+[*] ユニバース: 150銘柄 (F:\stockModel\universe_150_tickers.txt)
+[cache] 特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_full_feature_pool.pkl)
+[cache] マージン特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_margin_pool.pkl)
+[cache] セクター相対特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_sector_relative_pool.pkl)
+[cache] マクロ特徴量プールキャッシュを読み込みました (F:\stockModel\research\cache\_cache_full_macro_pool.pkl)
+[*] split date: 2025-12-17
+[+] train=69210 val=26821 backtest_pool=26821
+[*] seeds=[42, 43, 44, 45, 46] を最大10並列で学習します...
+[worker base seed=42] memmap load: train=41.7MB val=16.2MB
+[worker base seed=43] memmap load: train=41.7MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=42)] cross-sectional連続バッチ: train=468 val=179
+[worker base seed=44] memmap load: train=41.7MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=43)] cross-sectional連続バッチ: train=468 val=179
+[00:00:00]   [parallel_sweep(base,seed=44)] cross-sectional連続バッチ: train=468 val=179
+[worker base seed=45] memmap load: train=41.7MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=45)] cross-sectional連続バッチ: train=468 val=179
+[worker base seed=46] memmap load: train=41.7MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=46)] cross-sectional連続バッチ: train=468 val=179
+[00:00:15]   [parallel_sweep(base,seed=42)] epoch  1/30: train_loss=0.6940 val_loss=0.6932 <- best
+[00:00:15]   [parallel_sweep(base,seed=43)] epoch  1/30: train_loss=0.6940 val_loss=0.6932 <- best
+[00:00:15]   [parallel_sweep(base,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6932 <- best
+[00:00:15]   [parallel_sweep(base,seed=45)] epoch  1/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:00:15]   [parallel_sweep(base,seed=46)] epoch  1/30: train_loss=0.6936 val_loss=0.6930 <- best
+[00:00:28]   [parallel_sweep(base,seed=42)] epoch  2/30: train_loss=0.6927 val_loss=0.6932 <- best
+[00:00:28]   [parallel_sweep(base,seed=43)] epoch  2/30: train_loss=0.6929 val_loss=0.6931 <- best
+[00:00:28]   [parallel_sweep(base,seed=44)] epoch  2/30: train_loss=0.6928 val_loss=0.6929 <- best
+[00:00:28]   [parallel_sweep(base,seed=45)] epoch  2/30: train_loss=0.6926 val_loss=0.6927 <- best
+[00:00:28]   [parallel_sweep(base,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6927 <- best
+[00:00:41]   [parallel_sweep(base,seed=42)] epoch  3/30: train_loss=0.6926 val_loss=0.6931 <- best
+[00:00:41]   [parallel_sweep(base,seed=46)] epoch  3/30: train_loss=0.6926 val_loss=0.6924 <- best
+[00:00:54]   [parallel_sweep(base,seed=42)] epoch  4/30: train_loss=0.6923 val_loss=0.6930 <- best
+[00:01:07]   [parallel_sweep(base,seed=42)] epoch  5/30: train_loss=0.6922 val_loss=0.6928 <- best
+[00:01:07]   [parallel_sweep(base,seed=44)] epoch  5/30: train_loss=0.6915 val_loss=0.6937 (patience 3/7)
+[00:01:07]   [parallel_sweep(base,seed=43)] epoch  5/30: train_loss=0.6920 val_loss=0.6939 (patience 3/7)
+[00:01:07]   [parallel_sweep(base,seed=45)] epoch  5/30: train_loss=0.6919 val_loss=0.6929 (patience 3/7)
+[00:01:07]   [parallel_sweep(base,seed=46)] epoch  5/30: train_loss=0.6924 val_loss=0.6925 (patience 2/7)
+[00:01:45]   [parallel_sweep(base,seed=42)] epoch  8/30: train_loss=0.6918 val_loss=0.6925 <- best
+[00:01:57]   [parallel_sweep(base,seed=44)] epoch  9/30: train_loss=0.6904 val_loss=0.6948 (patience 7/7)
+[00:01:57] [+] [parallel_sweep(base,seed=44) seed=44] 学習完了 best_val_loss=0.6929
+[worker base seed=44] train_model elapsed=117.9s
+[00:01:58]   [parallel_sweep(base,seed=43)] epoch  9/30: train_loss=0.6911 val_loss=0.6939 (patience 7/7)
+[00:01:58] [+] [parallel_sweep(base,seed=43) seed=43] 学習完了 best_val_loss=0.6931
+[worker base seed=43] train_model elapsed=118.2s
+[00:01:58]   [parallel_sweep(base,seed=45)] epoch  9/30: train_loss=0.6907 val_loss=0.6933 (patience 7/7)
+[00:01:58] [+] [parallel_sweep(base,seed=45) seed=45] 学習完了 best_val_loss=0.6927
+[worker base seed=45] train_model elapsed=118.1s
+[00:02:05]   [parallel_sweep(base,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6927 (patience 2/7)
+[00:02:05]   [parallel_sweep(base,seed=46)] epoch 10/30: train_loss=0.6906 val_loss=0.6937 (patience 7/7)
+[00:02:05] [+] [parallel_sweep(base,seed=46) seed=46] 学習完了 best_val_loss=0.6924
+[worker base seed=46] train_model elapsed=125.7s
+[00:02:42]   [parallel_sweep(base,seed=42)] epoch 15/30: train_loss=0.6907 val_loss=0.6929 (patience 7/7)
+[00:02:42] [+] [parallel_sweep(base,seed=42) seed=42] 学習完了 best_val_loss=0.6925
+[worker base seed=42] train_model elapsed=162.3s
+[+] 全5seed学習完了: 実時間=167.0秒
+
+==========================================================================================
+【ベースライン(制約なし) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None            None     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None            None     537 1.508831 0.014297 0.490121 -0.288228        0.603323         1.669285                0
+     5           None            None     895 1.636415 0.016700 0.821297 -0.402760        0.581939         1.939263                0
+    10           None            None    1790 1.653961 0.016703 1.258620 -0.441732        0.591742         2.178309                0
+    20           None            None    3580 1.591143 0.014298 1.466351 -0.420991        0.604115         2.035040                0
+    30           None            None    5370 1.573200 0.012665 1.524221 -0.419832        0.554129         1.951920                0
+
+==========================================================================================
+【現行クラスタ制約(method=monthly_consensus, N_CLUSTERS=10, max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.589206 0.016069 0.321038 -0.233371        0.659286         1.952715                0
+     5           None                2     895 1.684500 0.017405 0.490030 -0.370249        0.640726         2.782463                0
+    10           None                2    1790 1.804744 0.017589 0.777246 -0.348216        0.774170         2.499132                0
+    20           None                2    2506 1.698767 0.014022 0.759437 -0.272772        0.747732         1.993329                0
+    30           None                2    2506 1.698767 0.014022 0.759437 -0.272772        0.747732         1.993329                0
+
+[*] market_residual_corr k=10 クラスタサイズ分布(候補ユニバース全体):
+C0    152
+C1      3
+C2    320
+C3     55
+C4      4
+C5      9
+C6      4
+C7     25
+C8      9
+C9      4
+
+==========================================================================================
+【market_residual_corr k=10 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.573497 0.016208 0.302182 -0.223348        0.581049         1.912824                0
+     5           None                2     895 1.648600 0.016560 0.522489 -0.328917        0.498614         2.070031                1
+    10           None                2    1790 1.482040 0.010843 0.593709 -0.248962        0.667345         1.920467                0
+    20           None                2    2327 1.477363 0.010900 0.753768 -0.231078        0.708420         1.744323                0
+    30           None                2    2327 1.477363 0.010900 0.753768 -0.231078        0.708420         1.744323                0
+
+[*] market_residual_corr k=15 クラスタサイズ分布(候補ユニバース全体):
+C0     310
+C1       9
+C10      4
+C11      9
+C12      4
+C13      4
+C14      2
+C2       8
+C3      55
+C4       3
+C5     133
+C6       6
+C7      25
+C8       9
+C9       4
+
+==========================================================================================
+【market_residual_corr k=15 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.589899 0.016623 0.308169 -0.222991        0.585544         1.912824                0
+     5           None                2     895 1.606584 0.015782 0.565436 -0.323825        0.474923         1.817341                1
+    10           None                2    1790 1.459127 0.010832 0.638504 -0.278348        0.609700         1.947362                0
+    20           None                2    3043 1.505568 0.011582 1.009029 -0.235733        0.660657         1.930876                0
+    30           None                2    3043 1.505568 0.011582 1.009029 -0.235733        0.660657         1.930876                0
+
+[*] market_residual_corr k=20 クラスタサイズ分布(候補ユニバース全体):
+C0       8
+C1     307
+C10      4
+C11      9
+C12      4
+C13      4
+C14      2
+C15      2
+C16      2
+C17      1
+C18      1
+C19      1
+C2     133
+C3       9
+C4       7
+C5      54
+C6       6
+C7      25
+C8       2
+C9       4
+
+==========================================================================================
+【market_residual_corr k=20 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.589899 0.016623 0.308169 -0.222991        0.585544         1.912824                0
+     5           None                2     895 1.606584 0.015782 0.565436 -0.323825        0.474923         1.817341                1
+    10           None                2    1790 1.459127 0.010832 0.638504 -0.278348        0.609700         1.947362                0
+    20           None                2    3043 1.505568 0.011582 1.009029 -0.235733        0.660657         1.930876                0
+    30           None                2    3043 1.505568 0.011582 1.009029 -0.235733        0.660657         1.930876                0

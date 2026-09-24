@@ -75,6 +75,7 @@ function loadScreenedCsv(baseDir) {
     records.push({
       ticker,
       companyName: '',
+      side: 'long',
       price: (row[idxPrice] || '').trim(),
       target: (row[idxTarget] || '').trim(),
       stop: (row[idxStop] || '').trim(),
@@ -105,6 +106,55 @@ function loadScreenedCsv(baseDir) {
   return { filename: path.basename(targetCsv), records };
 }
 
+// run_dynamic_regime_screening_v8.py が出力する final_regime_screened_v8_short.csv
+// (空売りモデルv2の候補、ev_score降順)を読む。ロング用CSVと違い、セクター/需給/β/
+// 出来高比・判定ゲートの列は存在しない(空売りは閾値ゲートせず日次Top-N選抜のため、
+// [[regime_gated_long_short_blend_2026-09-24]])。CSVは既にev_score降順でソート済みなので、
+// 先頭からSHORT_DAILY_TOPN件が実際にその日ショートする銘柄になる。
+function loadShortScreenedCsv(baseDir) {
+  const targetCsv = path.join(baseDir, 'final_regime_screened_v8_short.csv');
+  if (!fs.existsSync(targetCsv)) return { filename: '', records: [] };
+
+  const raw = fs.readFileSync(targetCsv, 'utf-8');
+  const lines = raw.trim().split(/\r?\n/);
+  if (lines.length <= 1) return { filename: path.basename(targetCsv), records: [] };
+
+  const records = [];
+  const headers = parseCsvLine(lines[0]).map(h => h.trim());
+  const getIdx = (name) => headers.indexOf(name);
+
+  const idxTicker = getIdx('ticker');
+  const idxPrice = getIdx('price');
+  const idxTarget = getIdx('target_price');
+  const idxStop = getIdx('stop_price');
+  const idxPWin = getIdx('prob_win');
+  const idxPStop = getIdx('prob_stop');
+  const idxEv = getIdx('ev_score');
+  const idxSizeFactor = getIdx('size_factor');
+
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const row = parseCsvLine(lines[i]);
+    const ticker = (row[idxTicker] || '').trim();
+    if (!ticker) continue;
+
+    records.push({
+      ticker,
+      companyName: '',
+      side: 'short',
+      price: (row[idxPrice] || '').trim(),
+      target: (row[idxTarget] || '').trim(),
+      stop: (row[idxStop] || '').trim(),
+      p_win: (row[idxPWin] || '').trim(),
+      p_stop: (row[idxPStop] || '').trim(),
+      ev: (row[idxEv] || '').trim(),
+      size_factor: (idxSizeFactor !== -1 && row[idxSizeFactor]) ? row[idxSizeFactor].trim() : '1.0',
+    });
+  }
+
+  return { filename: path.basename(targetCsv), records };
+}
+
 function loadMacroFlowSignal(baseDir) {
   const jsonPath = path.join(baseDir, 'macro_flow_signal.json');
   if (!fs.existsSync(jsonPath)) return null;
@@ -128,6 +178,7 @@ function loadScreeningMeta(baseDir) {
       macroRegime: data.macro_regime || null,
       regimeRisk: data.regime_risk || null,
       shortEdge: data.short_edge || null,
+      momentumRegime: data.momentum_regime || null,
     };
   } catch (e) {
     return null;
@@ -176,4 +227,4 @@ function loadTrackingLog(baseDir) {
   return { records };
 }
 
-module.exports = { loadScreenedCsv, loadMacroFlowSignal, loadScreeningMeta, loadPortfolio, loadTrackingLog };
+module.exports = { loadScreenedCsv, loadShortScreenedCsv, loadMacroFlowSignal, loadScreeningMeta, loadPortfolio, loadTrackingLog };

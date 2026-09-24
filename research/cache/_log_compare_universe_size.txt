@@ -1,0 +1,123 @@
+[*] 拡大ユニバース: 300銘柄
+[*] データ構築(300銘柄ユニバース、force_rebuild=Trueでキャッシュ新規生成)...
+[cache] 特徴量プールキャッシュが無いため新規計算します...
+[cache] ベース特徴量キャッシュが無いため新規計算します(初回のみ、以降は再利用)...
+  --> 50/300 銘柄 完了
+  --> 100/300 銘柄 完了
+  --> 150/300 銘柄 完了
+  --> 200/300 銘柄 完了
+  --> 250/300 銘柄 完了
+  --> 300/300 銘柄 完了
+[cache] ベース特徴量キャッシュを保存しました: 298銘柄 -> F:\stockModel\research\cache\_cache_base_per_ticker_df_expanded300.pkl
+  --> 50/298 銘柄 完了
+  --> 100/298 銘柄 完了
+  --> 150/298 銘柄 完了
+  --> 200/298 銘柄 完了
+  --> 250/298 銘柄 完了
+[cache] 特徴量プールキャッシュを保存しました: 298銘柄 -> F:\stockModel\research\cache\_cache_full_feature_pool_expanded300.pkl
+[cache] マージン特徴量プールキャッシュが無いため新規計算します...
+[cache] ベース特徴量キャッシュが無いため新規計算します(初回のみ、以降は再利用)...
+  --> 50/300 銘柄 完了
+  --> 100/300 銘柄 完了
+  --> 150/300 銘柄 完了
+  --> 200/300 銘柄 完了
+  --> 250/300 銘柄 完了
+  --> 300/300 銘柄 完了
+[cache] ベース特徴量キャッシュを保存しました: 298銘柄 -> F:\stockModel\research\cache\_cache_base_per_ticker_df_expanded300.pkl
+  --> 50/298 銘柄 完了
+  --> 100/298 銘柄 完了
+  --> 150/298 銘柄 完了
+[cache] マージン特徴量プールキャッシュを保存しました: 150銘柄 -> F:\stockModel\research\cache\_cache_margin_pool_expanded300.pkl
+[cache] セクター相対特徴量プールキャッシュが無いため新規計算します...
+[cache] ベース特徴量キャッシュが無いため新規計算します(初回のみ、以降は再利用)...
+  --> 50/300 銘柄 完了
+  --> 100/300 銘柄 完了
+  --> 150/300 銘柄 完了
+  --> 200/300 銘柄 完了
+  --> 250/300 銘柄 完了
+  --> 300/300 銘柄 完了
+[cache] ベース特徴量キャッシュを保存しました: 298銘柄 -> F:\stockModel\research\cache\_cache_base_per_ticker_df_expanded300.pkl
+  --> 50/298 銘柄 完了
+  --> 100/298 銘柄 完了
+  --> 150/298 銘柄 完了
+  --> 200/298 銘柄 完了
+  --> 250/298 銘柄 完了
+[cache] セクター相対特徴量プールキャッシュを保存しました: 297銘柄 -> F:\stockModel\research\cache\_cache_sector_relative_pool_expanded300.pkl
+[cache] マクロ特徴量プールキャッシュを保存しました -> F:\stockModel\research\cache\_cache_full_macro_pool_expanded300.pkl
+[*] split date: 2025-12-18
+[+] train=136966 val=53138 backtest_pool=53138
+[*] seeds=[42, 43, 44, 45, 46] を最大10並列で学習します...
+[worker base seed=42] memmap load: train=87.8MB val=34.1MB
+[worker base seed=43] memmap load: train=87.8MB val=34.1MB
+[00:00:00]   [parallel_sweep(base,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(base,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker base seed=44] memmap load: train=87.8MB val=34.1MB
+[00:00:00]   [parallel_sweep(base,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker base seed=45] memmap load: train=87.8MB val=34.1MB
+[00:00:00]   [parallel_sweep(base,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker base seed=46] memmap load: train=87.8MB val=34.1MB
+[00:00:00]   [parallel_sweep(base,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:15]   [parallel_sweep(base,seed=42)] epoch  1/30: train_loss=0.6935 val_loss=0.6932 <- best
+[00:00:15]   [parallel_sweep(base,seed=43)] epoch  1/30: train_loss=0.6937 val_loss=0.6931 <- best
+[00:00:15]   [parallel_sweep(base,seed=44)] epoch  1/30: train_loss=0.6937 val_loss=0.6935 <- best
+[00:00:15]   [parallel_sweep(base,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6931 <- best
+[00:00:15]   [parallel_sweep(base,seed=46)] epoch  1/30: train_loss=0.6937 val_loss=0.6931 <- best
+[00:00:27]   [parallel_sweep(base,seed=42)] epoch  2/30: train_loss=0.6928 val_loss=0.6932 <- best
+[00:00:27]   [parallel_sweep(base,seed=44)] epoch  2/30: train_loss=0.6926 val_loss=0.6934 <- best
+[00:00:28]   [parallel_sweep(base,seed=46)] epoch  2/30: train_loss=0.6929 val_loss=0.6930 <- best
+[00:00:40]   [parallel_sweep(base,seed=46)] epoch  3/30: train_loss=0.6928 val_loss=0.6929 <- best
+[00:01:05]   [parallel_sweep(base,seed=43)] epoch  5/30: train_loss=0.6921 val_loss=0.6938 (patience 4/7)
+[00:01:05]   [parallel_sweep(base,seed=42)] epoch  5/30: train_loss=0.6921 val_loss=0.6940 (patience 3/7)
+[00:01:05]   [parallel_sweep(base,seed=44)] epoch  5/30: train_loss=0.6920 val_loss=0.6942 (patience 3/7)
+[00:01:06]   [parallel_sweep(base,seed=45)] epoch  5/30: train_loss=0.6921 val_loss=0.6933 (patience 4/7)
+[00:01:06]   [parallel_sweep(base,seed=46)] epoch  5/30: train_loss=0.6925 val_loss=0.6932 (patience 2/7)
+[00:01:43]   [parallel_sweep(base,seed=43)] epoch  8/30: train_loss=0.6916 val_loss=0.6940 (patience 7/7)
+[00:01:43] [+] [parallel_sweep(base,seed=43) seed=43] 学習完了 best_val_loss=0.6931
+[worker base seed=43] train_model elapsed=103.8s
+[00:01:44]   [parallel_sweep(base,seed=45)] epoch  8/30: train_loss=0.6912 val_loss=0.6943 (patience 7/7)
+[00:01:44] [+] [parallel_sweep(base,seed=45) seed=45] 学習完了 best_val_loss=0.6931
+[worker base seed=45] train_model elapsed=104.1s
+[00:01:51]   [parallel_sweep(base,seed=42)] epoch  9/30: train_loss=0.6911 val_loss=0.6939 (patience 7/7)
+[00:01:51] [+] [parallel_sweep(base,seed=42) seed=42] 学習完了 best_val_loss=0.6932
+[worker base seed=42] train_model elapsed=111.8s
+[00:01:51]   [parallel_sweep(base,seed=44)] epoch  9/30: train_loss=0.6908 val_loss=0.6952 (patience 7/7)
+[00:01:51] [+] [parallel_sweep(base,seed=44) seed=44] 学習完了 best_val_loss=0.6934
+[worker base seed=44] train_model elapsed=111.5s
+[00:01:59]   [parallel_sweep(base,seed=46)] epoch 10/30: train_loss=0.6916 val_loss=0.6938 (patience 7/7)
+[00:01:59] [+] [parallel_sweep(base,seed=46) seed=46] 学習完了 best_val_loss=0.6929
+[worker base seed=46] train_model elapsed=119.1s
+[+] 全5seed学習完了: 実時間=124.3秒
+
+  [月別内訳: 拡大300銘柄(アンサンブル5seed) score Top-K]
+    2026-01: n=  17 win_rate= 82.4% PF= 8.09
+    2026-02: n=  36 win_rate= 61.1% PF= 1.81
+    2026-03: n=  12 win_rate=  8.3% PF= 0.05
+    2026-04: n=   8 win_rate= 87.5% PF= 6.63
+    2026-05: n=   9 win_rate= 22.2% PF= 0.34
+    2026-06: n=  89 win_rate= 42.7% PF= 1.10
+    2026-07: n=  22 win_rate=  9.1% PF= 0.12
+    -> 月別一貫性: 4/7ヶ月でPF>1 (57%)
+  拡大300銘柄(アンサンブル5seed) score Top-K: n=  193(約定、候補200件中) win_rate= 44.6% PF= 1.00 avg_ret=+0.0001 MaxDD= -2.5%
+    top_k_pf(同時保有制約無視、候補200件)=0.95 | 銘柄集中: 上位1銘柄15.0% 上位5銘柄48.2% HHI=0.066
+
+==========================================================================================
+【TOPN別PF分析(業種制約 max_per_sector=3) - 拡大300銘柄ユニバース】
+==========================================================================================
+ top_n  max_per_sector max_per_cluster  trades       pf  avg_ret     cagr  worst_month_pf  median_month_pf  pf_lt_05_months
+     1               3            None     179 1.451102 0.010890 0.044131        0.171232         2.183014                2
+     3               3            None     537 1.527897 0.011858 0.150834        0.383246         2.400408                1
+     5               3            None     895 1.627819 0.013959 0.316558        0.501349         2.288933                0
+    10               3            None    1790 1.524856 0.011941 0.595360        0.511124         2.055694                0
+    20               3            None    3580 1.436591 0.009678 1.105139        0.583614         1.848768                0
+    30               3            None    5370 1.452965 0.009560 1.985293        0.637777         1.837398                0
+
+==========================================================================================
+【TOPN別PF分析(クラスタ制約 max_per_cluster=2) - 拡大300銘柄ユニバース】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.451102 0.010890 0.044131        0.171232         2.183014                2
+     3           None                2     537 1.475162 0.010833 0.136775        0.389692         2.431907                1
+     5           None                2     895 1.528066 0.011841 0.262554        0.450314         2.324503                1
+    10           None                2    1790 1.462653 0.010301 0.495408        0.549754         1.935811                0
+    20           None                2    3043 1.395747 0.008542 0.757671        0.654561         1.560819                0
+    30           None                2    3043 1.395747 0.008542 0.757671        0.654561         1.560819                0

@@ -9,16 +9,36 @@ body {
   background: #0f172a;
   color: #f8fafc;
   overflow: hidden;
+  /* header/status-bar/container/terminal-panelを縦に並べ、containerだけ残り高さを
+     埋める(旧実装はcalc(100vh - 56px - 160px)の固定値計算だったため、行を1つ増やす
+     たびに数値を合わせ直す必要があった)。 */
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
 }
 
 /* ヘッダー */
 header {
   height: 56px;
+  flex-shrink: 0;
   background: #1e293b;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
+  border-bottom: 1px solid #334155;
+}
+
+/* レジーム系バッジ専用の行。ヘッダーに同居させるとバッジの数が増えるたびに
+   資金設定・操作ボタンが右端に圧迫されていたため分離した。折り返し可能。 */
+.status-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: #131b2e;
   border-bottom: 1px solid #334155;
 }
 
@@ -139,7 +159,8 @@ header h1 {
 /* メインレイアウト */
 .container {
   display: flex;
-  height: calc(100vh - 56px - 160px);
+  flex: 1;
+  min-height: 0; /* flex子要素(table-container等)のoverflow-yスクロールに必要 */
 }
 
 .sidebar {
@@ -161,6 +182,37 @@ header h1 {
 
 .shortcut-hint { color: #64748b; font-size: 11px; }
 .table-container { flex: 1; overflow-y: auto; }
+
+/* ロング/ショート切替タブ(メインテーブル・ポートフォリオモーダル共通) */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px;
+  background: #131b2e;
+  border-bottom: 1px solid #334155;
+}
+
+.tab-btn {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.15s;
+}
+
+.tab-btn:hover { background: #1e293b; color: #f8fafc; }
+
+.tab-btn.tab-active {
+  background: #0284c7;
+  color: white;
+  border-color: #0284c7;
+}
+
+.badge-short-top { background: #b91c1c; color: white; }
 
 table {
   width: 100%;
@@ -328,6 +380,7 @@ tr.selected { background: #0369a1 !important; }
 
 .terminal-panel {
   height: 160px;
+  flex-shrink: 0;
   background: #020617;
   border-top: 1px solid #334155;
   display: flex;

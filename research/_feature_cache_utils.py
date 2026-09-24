@@ -104,7 +104,44 @@ POOL_STOCK_FEATURE_COLS = [
     'gap_strength_5',                          # 直近5日の符号付きギャップ平均(方向性)
     'gap_follow_through',                      # ギャップ方向とその日の値動きが順張りしたか(5日平均)
     'volume_ma_ratio',                         # 出来高5日MA÷20日MA
+    'vwap_distance',                           # 終値の20日出来高加重平均(VWAP)からの乖離率(2026-09-23追加)
+    'ret_rank_20d', 'vol_rank_5d', 'high20_rank',  # ユニバース全体での横断パーセンタイル順位(2026-09-23追加)
 ]
+
+# 横断(ユニバース全体)ランク特徴量: key=出力列名, value=順位化する元の列名。sector_rank_ret_5d
+# (業種内順位、不採用済み)とはスコープが異なり、150銘柄ユニバース全体でのその日の順位
+# (PAIR_MODE="cross_sectional"の学習方式との一致を狙う、2026-09-23追加)。
+CROSS_SECTIONAL_RANK_COLS = {
+    'ret_rank_20d': 'stock_ret_20d',
+    'vol_rank_5d': 'vol_ratio_5d',
+    'high20_rank': 'dist_from_high20',
+}
+
+
+def _add_cross_sectional_rank_features(pool):
+    """CROSS_SECTIONAL_RANK_COLSの元列を、その日のユニバース全体でのパーセンタイル順位
+    (-1〜+1)に変換した列を各銘柄dfに追加する(in-place)。poolの各dfは元列
+    (stock_ret_20d/vol_ratio_5d/dist_from_high20、いずれもcompute_stock_features()で
+    計算済みでNaN無し)を既に持っている前提。"""
+    src_cols = list(CROSS_SECTIONAL_RANK_COLS.values())
+    long_rows = []
+    for t, df in pool.items():
+        sub = df[src_cols].copy()
+        sub['ticker'] = t
+        sub['date'] = sub.index
+        long_rows.append(sub)
+    long_df = pd.concat(long_rows, ignore_index=True)
+
+    for rank_col, src_col in CROSS_SECTIONAL_RANK_COLS.items():
+        long_df[rank_col] = (long_df.groupby('date')[src_col].rank(pct=True) - 0.5) * 2
+
+    lookup = long_df.set_index(['date', 'ticker'])[list(CROSS_SECTIONAL_RANK_COLS)]
+    for t, df in pool.items():
+        idx = pd.MultiIndex.from_arrays([df.index, [t] * len(df)], names=['date', 'ticker'])
+        aligned = lookup.reindex(idx)
+        for rank_col in CROSS_SECTIONAL_RANK_COLS:
+            df[rank_col] = np.nan_to_num(aligned[rank_col].values, nan=0.0)
+    return pool
 
 # マクロレベルの候補特徴量プール
 POOL_MACRO_FEATURE_COLS = [
@@ -206,6 +243,11 @@ def _compute_pool_stock_features(df, macro_df):
     vol_ma5 = df['Volume'].rolling(5).mean()
     vol_ma20 = df['Volume'].rolling(20).mean()
     df['volume_ma_ratio'] = (vol_ma5 / (vol_ma20 + 1e-7)).fillna(1.0)
+
+    # 終値の20日出来高加重平均(VWAP)からの乖離率(日次OHLCVのみのためCloseベースの近似)。
+    vwap20 = ((df['Close'] * df['Volume']).rolling(20).sum()
+              / (df['Volume'].rolling(20).sum() + 1e-7))
+    df['vwap_distance'] = ((df['Close'] - vwap20) / (vwap20 + 1e-7)).fillna(0.0)
     return df
 
 
@@ -229,6 +271,7 @@ def get_full_feature_pool_df(tickers, macro_df, force_rebuild=False):
             continue
         if (i + 1) % 50 == 0:
             print(f"  --> {i + 1}/{len(base)} 銘柄 完了")
+    pool = _add_cross_sectional_rank_features(pool)
 
     with open(POOL_CACHE_PATH, "wb") as f:
         pickle.dump(pool, f)

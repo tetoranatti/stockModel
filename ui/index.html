@@ -11,17 +11,6 @@
   <header>
     <div class="header-left">
       <h1>📈 JPX スイングコックピット</h1>
-      <div id="macro-regime-badge" class="regime-badge regime-neutral">
-        ● レジーム分析中...
-      </div>
-      <!-- 空売り機会モデル(翌日TOPIX下落確率)バッジ -->
-      <div id="short-edge-badge" class="regime-badge regime-neutral">
-        📉 空売り機会分析中...
-      </div>
-      <!-- 大口手口フローシグナルバッジ -->
-      <div id="macro-flow-badge" class="regime-badge flow-badge-normal" title="JPX日次先物手口フロー">
-        ⚡ フロー待機中
-      </div>
     </div>
 
     <div class="risk-settings">
@@ -47,6 +36,28 @@
     </div>
   </header>
 
+  <!-- レジーム系バッジは専用行に分離(ヘッダーに詰め込むとボタン列が右端に圧迫されるため)。
+       折り返し可能にして、バッジが増えても操作ボタンの位置に影響しないようにする。 -->
+  <div class="status-bar">
+    <div id="macro-regime-badge" class="regime-badge regime-neutral">
+      ● レジーム分析中...
+    </div>
+    <!-- モメンタムレジームゲート(NK225 20日モメンタム)バッジ: ロング/ショートの
+         資金配分(capital_long/capital_short)を実際に決めている判定を表示する -->
+    <div id="momentum-regime-badge" class="regime-badge regime-neutral">
+      ⚖️ モメンタムレジーム分析中...
+    </div>
+    <!-- 空売り機会モデル(翌日TOPIX下落確率)バッジ: 2026-09-24以降ロングサイズ調整には
+         使用していない参考表示(役割はモメンタムレジームゲートに統合) -->
+    <div id="short-edge-badge" class="regime-badge flow-badge-normal">
+      📉 空売り機会分析中...
+    </div>
+    <!-- 大口手口フローシグナルバッジ -->
+    <div id="macro-flow-badge" class="regime-badge flow-badge-normal" title="JPX日次先物手口フロー">
+      ⚡ フロー待機中
+    </div>
+  </div>
+
   <div class="container">
     <!-- 左：テーブル -->
     <div class="sidebar">
@@ -63,19 +74,15 @@
         </div>
         <span class="shortcut-hint">[↑/↓: 選択 | /: 検索 | C: SBIメモ | V: コード]</span>
       </div>
+      <!-- ロング/ショート切替タブ(final_regime_screened_v8.csv / _short.csvの2モデル分) -->
+      <div class="tab-bar">
+        <button class="tab-btn tab-active" id="tab-long">📈 ロング候補</button>
+        <button class="tab-btn" id="tab-short">📉 ショート候補</button>
+      </div>
       <div class="table-container" id="table-scroll-container">
         <table>
           <thead>
-            <tr>
-              <th style="text-align:left;">コード / 企業名</th>
-              <th>株価</th>
-              <th>EVスコア</th>
-              <th>買勝率</th>
-              <th>損切率</th>
-              <th>β</th>
-              <th>出来高比</th>
-              <th style="text-align:center;">判定</th>
-            </tr>
+            <tr id="table-head-row"></tr>
           </thead>
           <tbody id="table-body">
             <tr><td colspan="8" style="text-align:center; padding: 40px; color:#64748b;">CSV読込中...</td></tr>
@@ -101,11 +108,11 @@
           </div>
         </div>
         <div class="target-indicators" id="target-indicators" style="display: none;">
-          <div class="indicator-box tp-box">利確 (+2ATR): <span id="tp-val">-</span></div>
+          <div class="indicator-box tp-box"><span id="tp-label">利確 (+2ATR):</span> <span id="tp-val">-</span></div>
           <div class="indicator-box dip-box" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid #0284c7;">
-            押し目 (-0.5ATR): <span id="dip-val">-</span>
+            <span id="dip-label">押し目 (-0.5ATR):</span> <span id="dip-val">-</span>
           </div>
-          <div class="indicator-box sl-box">損切 (-1ATR): <span id="sl-val">-</span></div>
+          <div class="indicator-box sl-box"><span id="sl-label">損切 (-1ATR):</span> <span id="sl-val">-</span></div>
         </div>
       </div>
 
@@ -116,7 +123,7 @@
             <span class="sizing-val" id="calc-risk-per-share">- 円</span>
           </div>
           <div class="sizing-item">
-            <span class="sizing-label">推奨購入株数</span>
+            <span class="sizing-label" id="label-shares">推奨購入株数</span>
             <span class="sizing-val" id="calc-shares" style="color: #4ade80;">- 株</span>
           </div>
           <div class="sizing-item">
@@ -124,7 +131,7 @@
             <span class="sizing-val" id="calc-actual-loss" style="color: #f87171;">- 円</span>
           </div>
           <div class="sizing-item">
-            <span class="sizing-label">概算約定代金</span>
+            <span class="sizing-label" id="label-cost">概算約定代金</span>
             <span class="sizing-val" id="calc-total-cost">- 万円</span>
           </div>
           <div class="sizing-item">
@@ -161,6 +168,12 @@
         <span>📊 本日のポートフォリオ</span>
         <button class="btn btn-copy" id="btn-close-portfolio" title="閉じる (Esc)">✕</button>
       </div>
+      <!-- ロング/ショートは別枠の資金(モメンタムレジームゲートのcapital_long/capital_short)
+           で組むため、同じモーダル内でタブ切替する -->
+      <div class="tab-bar" style="padding: 8px 16px 0;">
+        <button class="tab-btn tab-active" id="tab-portfolio-long">📈 ロング</button>
+        <button class="tab-btn" id="tab-portfolio-short">📉 ショート</button>
+      </div>
       <div class="modal-body" id="portfolio-summary">-</div>
       <div class="modal-body" style="flex: 1; overflow-y: auto; padding-top: 0;">
         <table>
@@ -168,7 +181,7 @@
             <tr>
               <th style="text-align:left;">コード</th>
               <th>株価</th>
-              <th style="text-align:center;">判定</th>
+              <th style="text-align:center;" id="portfolio-col3">判定</th>
               <th>株数</th>
               <th>概算代金</th>
               <th>想定最大損失</th>

@@ -10,6 +10,11 @@ import requests
 import pandas as pd
 from dotenv import load_dotenv
 
+# pipeline/配下からでもmodules/を解決できるようにプロジェクトルートをsys.pathへ追加
+import sys
+sys.path.insert(0, r"F:\stockModel")
+from modules.price_adjustment import backadjust_long_format, backadjust_wide_format
+
 BASE_DIR = r"F:\stockModel"
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
@@ -35,8 +40,15 @@ MIN_TURNOVER = 10e8  # 10億円 (v8基準)
 # compute_stock_features()のrolling_betaが90営業日窓を使うため、
 # run_dynamic_regime_screening_v8.py側のSEQ_LEN(10)+95日フィルタを満たすには
 # 最低105営業日分が必要。45日だと全銘柄がフィルタで弾かれ0件になる(実際に発生した不具合)。
-FETCH_DAYS = 130     # 日次スクリーニング用の直近営業日数
+FETCH_DAYS = 130     # 日次スクリーニング用の直近営業日数(pivot_df/prices_*.parquetの窓)
 YEARS_BACK = 3       # 学習用データセットの期間 (年)
+# daily_screening_bars_raw.parquet(全銘柄・縦持ち)に蓄積しておく営業日数。
+# fetch_daily_all()は1日1リクエストで全銘柄分まとめて取れるため、銘柄数に関わらず
+# YEARS_BACK分をこの1つのキャッシュにバルクで持たせておける(2026-09-24、
+# 学習用キャッシュ(旧PART2、銘柄ごとに個別リクエストしていた)をここから派生させる
+# 形に統合した際に導入。約252営業日/年で見積もり)。差分更新なので、初回だけ
+# BULK_HISTORY_DAYS分の未取得日をまとめて取得し、以降は前日分1日だけが対象になる。
+BULK_HISTORY_DAYS = int(252 * YEARS_BACK)
 
 FETCH_WORKERS = 8          # 並列フェッチのスレッド数
 REQUESTS_PER_MINUTE = 110  # Standardプラン上限(120req/分)に対する安全マージン
@@ -293,6 +305,9 @@ def main():
     print("=" * 75)
 
     target_days = get_recent_business_days(FETCH_DAYS)
+    # daily_screening_bars_raw.parquetへの蓄積・取得判定はBULK_HISTORY_DAYS(3年)基準で行う。
+    # target_days(FETCH_DAYS=130)はこの後のsub_df(pivot_df/prices_*.parquet用の窓)にだけ使う。
+    target_days_bulk = get_recent_business_days(BULK_HISTORY_DAYS)
 
     # 差分更新: 既にローカルキャッシュにある営業日はAPIから再取得しない。
     # (以前は実行のたびにFETCH_DAYS分を毎回丸ごと再取得しており、ほぼ全日が
@@ -307,9 +322,9 @@ def main():
     cached_days = set()
     if existing_sub_df is not None and not existing_sub_df.empty:
         cached_days = set(existing_sub_df['Date'].dt.strftime('%Y%m%d').unique())
-    missing_days = [d for d in target_days if d not in cached_days]
+    missing_days = [d for d in target_days_bulk if d not in cached_days]
 
-    print(f"[*] 直近 {len(target_days)} 営業日中 {len(missing_days)} 日分が未キャッシュ。"
+    print(f"[*] 直近 {len(target_days_bulk)} 営業日(約{YEARS_BACK}年)中 {len(missing_days)} 日分が未キャッシュ。"
           f"{FETCH_WORKERS}並列でAPIから取得...")
 
     new_sub_df = None
@@ -367,6 +382,16 @@ def main():
         return
 
     combined_sub_df = combined_sub_df.drop_duplicates(subset=['Date', 'ticker'], keep='last')
+
+    # 分割による遡及調整の不整合を修復(2026-09-24、7649で発覚)。差分更新で新規取得した
+    # 日は最新のAdj基準だが、既にキャッシュ済みの過去日は取得当時の基準のまま残るため、
+    # 分割が起きるとチャート・スクリーニング現在値・ATR/target/stopに不連続なジャンプが
+    # 混入する。全履歴(combined_sub_df)を毎回スキャンして自己修復するので、この行を
+    # 通すたびにキャッシュ全体が最新基準に揃う。
+    combined_sub_df, split_detections = backadjust_long_format(combined_sub_df)
+    for t, dt, ratio in split_detections:
+        print(f"  [!] 分割由来のジャンプを検出・遡及調整: {t} {dt.date()} (比率={ratio:.4f})")
+
     combined_sub_df.to_parquet(DAILY_SCREEN_RAW_CACHE_PATH)
 
     # 以降の処理対象は直近FETCH_DAYS営業日分のローリングウィンドウのみに絞る
@@ -412,27 +437,11 @@ def main():
     pd.DataFrame({"コード": [t.replace(".T", "") for t in qualified_tickers]}).to_csv(screener_out, index=False, encoding="cp932")
     print(f"[+] スクリーナー銘柄リスト更新完了: {screener_out}")
 
-    # UI描画用ローカルJSON保存
-    chart_cache_file = os.path.join(CACHE_DIR, f"chart_candles_{today_str}.json")
-    chart_dict = {}
-    for ticker in qualified_tickers:
-        if ticker in pivot_df.columns.levels[0]:
-            df_t = pivot_df[ticker].dropna()
-            bars = []
-            for dt, row in df_t.iterrows():
-                bars.append({
-                    "time": dt.strftime("%Y-%m-%d"),
-                    "open": float(row["Open"]),
-                    "high": float(row["High"]),
-                    "low": float(row["Low"]),
-                    "close": float(row["Close"]),
-                    "volume": float(row["Volume"])
-                })
-            chart_dict[ticker] = bars
-
-    with open(chart_cache_file, "w", encoding="utf-8") as f:
-        json.dump(chart_dict, f)
-    print(f"[+] チャート描画用JSON保存完了: {chart_cache_file}")
+    # 2026-09-24: UI描画用のchart_candles_*.json生成を廃止した。中身はdaily_screening_bars_raw.parquet
+    # (この関数の直前、combined_sub_df.to_parquet()で既に保存済みの縦持ちOHLCV)の
+    # 部分集合でしかなく、UI(Electron)側がhyparquetで直接この縦持ちparquetを読めるように
+    # なったため、同じデータを2つのキャッシュ形式で維持する必要が無くなった
+    # (分割調整バグの修復時、parquetとjsonの両方を個別に直す手間が発生したのが動機)。
 
     # =========================================================================
     # PART 2: モデル学習用 キャッシュ生成（universe_150 の過去3年分）
@@ -470,40 +479,42 @@ def main():
             print("[*] TOPIX: 新規データなし")
     time.sleep(0.55)
 
-    # 2. ユニバース全銘柄の四本値を取得（差分更新: 既存キャッシュの最終日翌日から取得）
-    existing_train_df, train_last_date = load_existing_cache(TRAIN_CACHE_PATH)
-    if train_last_date is not None and train_last_date >= today_d:
-        print(f"[*] ユニバース四本値キャッシュは既に最新です (最終日: {train_last_date})。スキップ")
+    # 2. ユニバース全銘柄の四本値をPART1のcombined_sub_dfから直接派生させる(2026-09-24)。
+    # 以前は銘柄ごとに個別リクエスト(fetch_ticker_jquants、universe_tickers件数分のAPI
+    # コール)していたが、PART1のバルクキャッシュ(daily_screening_bars_raw.parquet)が
+    # BULK_HISTORY_DAYS(YEARS_BACK分)・全銘柄・分割調整済みで既に蓄積されるようになった
+    # ため、そこから対象ユニバースの銘柄を切り出してピボットするだけでよくなった。
+    # API呼び出し・差分マージ・分割調整のいずれも不要(全てPART1で完了済み)。
+    # train_universe_bars.parquetを直接読んでいる7つの研究・学習・バックテスト
+    # スクリプトとの互換性のため、出力ファイルの形式(Dateインデックス、(ticker, field)の
+    # 横持ちMultiIndex列)は従来通り保つ。
+    #
+    # 副次的に、増減するユニバースリストとの追従漏れ(旧universe_150に入っていた銘柄の列が
+    # その後ユニバースから外れても残り続ける、[[reference_data_sources_constraints]]で
+    # 指摘されていた534 vs 150銘柄の食い違い)も、毎回ユニバースリストで絞って作り直す
+    # ため解消される(以前のような既存キャッシュとの差分マージはもう行わない)。
+    full_start_ts = pd.Timestamp(full_start_date)
+    train_sub = combined_sub_df[
+        combined_sub_df['ticker'].isin(universe_tickers) & (combined_sub_df['Date'] >= full_start_ts)
+    ]
+    if train_sub.empty:
+        print("[-] 学習用データを取得できませんでした(対象ユニバースの銘柄がバルクキャッシュに見つかりません)。")
     else:
-        train_fetch_start = (train_last_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d") if train_last_date else full_start_date
-        print(f"[*] 全 {len(universe_tickers)} 銘柄の四本値を並列取得中 ({train_fetch_start} ～ {end_date}, {FETCH_WORKERS}並列)...")
-        ticker_train_dfs = {}
-        with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
-            futures = {
-                executor.submit(fetch_ticker_jquants, session, t, train_fetch_start, end_date, rate_limiter): t
-                for t in universe_tickers
-            }
-            done_count = 0
-            for future in as_completed(futures):
-                t = futures[future]
-                df_single = future.result()
-                if df_single is not None and not df_single.empty:
-                    ticker_train_dfs[t] = df_single
+        missing_tickers = sorted(set(universe_tickers) - set(train_sub['ticker'].unique()))
+        if missing_tickers:
+            preview = missing_tickers[:10]
+            print(f"[!] バルクキャッシュに見つからないユニバース銘柄: {len(missing_tickers)}件 "
+                  f"(新規上場等) {preview}{'...' if len(missing_tickers) > 10 else ''}")
 
-                done_count += 1
-                if done_count % 25 == 0 or done_count == len(universe_tickers):
-                    print(f"  --> 学習用データ進捗: {done_count}/{len(universe_tickers)} 銘柄完了")
-
-        if ticker_train_dfs:
-            new_train_df = pd.concat(ticker_train_dfs, axis=1)
-            all_train_df = pd.concat([existing_train_df, new_train_df]) if existing_train_df is not None else new_train_df
-            all_train_df = all_train_df[~all_train_df.index.duplicated(keep='last')].sort_index()
-            all_train_df.to_parquet(TRAIN_CACHE_PATH)
-            print(f"[+] 学習用キャッシュ保存完了: {TRAIN_CACHE_PATH} ({len(all_train_df)} 日分)")
-        elif existing_train_df is not None:
-            print("[*] ユニバース四本値: 新規データなし（既存キャッシュを維持）")
-        else:
-            print("[-] 学習用データを取得できませんでした。")
+        all_train_df = (
+            train_sub.set_index(['Date', 'ticker'])[['Open', 'High', 'Low', 'Close', 'Volume']]
+            .unstack('ticker')
+            .swaplevel(0, 1, axis=1)
+            .sort_index(axis=1)
+        )
+        all_train_df.to_parquet(TRAIN_CACHE_PATH)
+        n_tickers_out = all_train_df.columns.get_level_values(0).nunique()
+        print(f"[+] 学習用キャッシュ保存完了: {TRAIN_CACHE_PATH} ({len(all_train_df)} 日分, {n_tickers_out} 銘柄)")
 
     # =========================================================================
     # PART 3: 日経225原証券価格（マクロ特徴量用）キャッシュ生成

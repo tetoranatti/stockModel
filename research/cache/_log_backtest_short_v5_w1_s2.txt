@@ -1,0 +1,33 @@
+[cache] 特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_full_feature_pool.pkl)
+[cache] マージン特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_margin_pool.pkl)
+[cache] セクター相対特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_sector_relative_pool.pkl)
+[cache] マクロ特徴量プールキャッシュを読み込みました (F:\stockModel\research\cache\_cache_full_macro_pool.pkl)
+[*] split date: 2025-12-18
+[*] EV重み: win=1.0 stop=2.0
+[+] backtest_pool(空売りv5)=26821
+
+  [月別内訳: 空売りモデルv5(win=1.0:stop=2.0、アンサンブル日次Top-5)]
+    2025-12: n=  45 win_rate= 51.1% PF= 0.83
+    2026-01: n=  95 win_rate= 53.7% PF= 1.67
+    2026-02: n=  90 win_rate= 38.9% PF= 1.08
+    2026-03: n= 101 win_rate= 66.3% PF= 2.98
+    2026-04: n=  97 win_rate= 60.8% PF= 1.75
+    2026-05: n=  53 win_rate= 50.9% PF= 1.41
+    2026-06: n=  21 win_rate= 52.4% PF= 1.22
+    2026-07: n=   8 win_rate= 75.0% PF= 4.85
+    2026-08: n=   8 win_rate= 37.5% PF= 0.64
+    2026-09: n=   2 win_rate=100.0% PF=  inf
+    -> 月別一貫性: 8/10ヶ月でPF>1 (80%)
+  空売りモデルv5(win=1.0:stop=2.0、アンサンブル日次Top-5): n=  520(約定、候補895件中) win_rate= 54.6% PF= 1.64 avg_ret=+0.0077 MaxDD=-20.1%
+    top_k_pf(同時保有制約無視、候補895件)=1.49 | 銘柄集中: 上位1銘柄 9.0% 上位5銘柄38.8% HHI=0.046
+
+==========================================================================================
+【TOPN別PF分析(空売りモデルv5 win=1.0:stop=2.0、制約無し)】
+==========================================================================================
+ top_n max_per_sector max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None            None     179 2.059403 0.012487 0.060593 -0.036828        1.063663         2.085196                0
+     3           None            None     537 1.553887 0.007548 0.225854 -0.058175        0.895407         1.417848                0
+     5           None            None     895 1.492911 0.006800 0.443129 -0.200930        0.826220         1.471912                0
+    10           None            None    1790 1.287276 0.004164 0.368226 -0.236206        0.589346         1.308609                0
+    20           None            None    3580 1.233035 0.003525 0.410812 -0.218041        0.547118         1.343176                0
+    30           None            None    5370 1.231478 0.003474 0.389740 -0.219709        0.477729         1.347022                1

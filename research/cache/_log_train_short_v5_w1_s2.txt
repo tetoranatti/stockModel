@@ -1,0 +1,40 @@
+[*] ユニバース: 150銘柄
+[*] 特徴量: stock=['stock_ret_1d', 'stock_ret_20d', 'rolling_beta', 'vol_ratio_5d', 'overnight_gap', 'dist_from_low20', 'gap_strength_5', 'atr_accel', 'dist_from_high60']
+[*] EV重み: win=1.0 stop=2.0 (既定は2.0:1.0)
+[cache] 特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_full_feature_pool.pkl)
+[cache] マージン特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_margin_pool.pkl)
+[cache] セクター相対特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_sector_relative_pool.pkl)
+[cache] マクロ特徴量プールキャッシュを読み込みました (F:\stockModel\research\cache\_cache_full_macro_pool.pkl)
+[*] split date: 2025-12-18
+[+] train=69360 val=26821
+[00:00:04]   [short_v5(w1.0:s2.0) seed=42] cross-sectional連続バッチ: train=469 val=179
+[00:00:13]   [short_v5(w1.0:s2.0) seed=42] epoch  1/30: train_loss=0.6943 val_loss=0.6928 <- best
+[00:00:42]   [short_v5(w1.0:s2.0) seed=42] epoch  5/30: train_loss=0.6927 val_loss=0.6931 (patience 4/7)
+[00:01:04]   [short_v5(w1.0:s2.0) seed=42] epoch  8/30: train_loss=0.6923 val_loss=0.6933 (patience 7/7)
+[00:01:04] [+] [short_v5(w1.0:s2.0) seed=42 seed=42] 学習完了 best_val_loss=0.6928
+[00:01:04]   [short_v5(w1.0:s2.0) seed=43] cross-sectional連続バッチ: train=469 val=179
+[00:01:11]   [short_v5(w1.0:s2.0) seed=43] epoch  1/30: train_loss=0.6942 val_loss=0.6932 <- best
+[00:01:18]   [short_v5(w1.0:s2.0) seed=43] epoch  2/30: train_loss=0.6933 val_loss=0.6931 <- best
+[00:01:40]   [short_v5(w1.0:s2.0) seed=43] epoch  5/30: train_loss=0.6927 val_loss=0.6934 (patience 3/7)
+[00:02:09]   [short_v5(w1.0:s2.0) seed=43] epoch  9/30: train_loss=0.6919 val_loss=0.6940 (patience 7/7)
+[00:02:09] [+] [short_v5(w1.0:s2.0) seed=43 seed=43] 学習完了 best_val_loss=0.6931
+[00:02:09]   [short_v5(w1.0:s2.0) seed=44] cross-sectional連続バッチ: train=469 val=179
+[00:02:16]   [short_v5(w1.0:s2.0) seed=44] epoch  1/30: train_loss=0.6940 val_loss=0.6936 <- best
+[00:02:23]   [short_v5(w1.0:s2.0) seed=44] epoch  2/30: train_loss=0.6932 val_loss=0.6933 <- best
+[00:02:31]   [short_v5(w1.0:s2.0) seed=44] epoch  3/30: train_loss=0.6929 val_loss=0.6932 <- best
+[00:02:45]   [short_v5(w1.0:s2.0) seed=44] epoch  5/30: train_loss=0.6926 val_loss=0.6936 (patience 2/7)
+[00:03:22]   [short_v5(w1.0:s2.0) seed=44] epoch 10/30: train_loss=0.6913 val_loss=0.6949 (patience 7/7)
+[00:03:22] [+] [short_v5(w1.0:s2.0) seed=44 seed=44] 学習完了 best_val_loss=0.6932
+[00:03:22]   [short_v5(w1.0:s2.0) seed=45] cross-sectional連続バッチ: train=469 val=179
+[00:03:29]   [short_v5(w1.0:s2.0) seed=45] epoch  1/30: train_loss=0.6941 val_loss=0.6932 <- best
+[00:03:58]   [short_v5(w1.0:s2.0) seed=45] epoch  5/30: train_loss=0.6923 val_loss=0.6937 (patience 4/7)
+[00:04:20]   [short_v5(w1.0:s2.0) seed=45] epoch  8/30: train_loss=0.6919 val_loss=0.6943 (patience 7/7)
+[00:04:20] [+] [short_v5(w1.0:s2.0) seed=45 seed=45] 学習完了 best_val_loss=0.6932
+[00:04:20]   [short_v5(w1.0:s2.0) seed=46] cross-sectional連続バッチ: train=469 val=179
+[00:04:27]   [short_v5(w1.0:s2.0) seed=46] epoch  1/30: train_loss=0.6941 val_loss=0.6934 <- best
+[00:04:34]   [short_v5(w1.0:s2.0) seed=46] epoch  2/30: train_loss=0.6932 val_loss=0.6933 <- best
+[00:04:41]   [short_v5(w1.0:s2.0) seed=46] epoch  3/30: train_loss=0.6930 val_loss=0.6932 <- best
+[00:04:56]   [short_v5(w1.0:s2.0) seed=46] epoch  5/30: train_loss=0.6924 val_loss=0.6935 (patience 2/7)
+[00:05:33]   [short_v5(w1.0:s2.0) seed=46] epoch 10/30: train_loss=0.6915 val_loss=0.6941 (patience 7/7)
+[00:05:33] [+] [short_v5(w1.0:s2.0) seed=46 seed=46] 学習完了 best_val_loss=0.6932
+[+] チェックポイントを保存しました: F:\stockModel\research\short_exp\..\cache\short_model_cache_v5_w1_s2

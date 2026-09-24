@@ -1,0 +1,52 @@
+[*] ユニバース: 150銘柄
+[*] 特徴量: stock=['stock_ret_1d', 'stock_ret_20d', 'rolling_beta', 'vol_ratio_5d', 'overnight_gap', 'dist_from_low20', 'gap_strength_5', 'atr_accel', 'dist_from_high60']
+[*] 特徴量: macro=['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentum', 'nk_ret_norm']
+[cache] 特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_full_feature_pool.pkl)
+[cache] マージン特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_margin_pool.pkl)
+[cache] セクター相対特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_sector_relative_pool.pkl)
+[cache] マクロ特徴量プールキャッシュを読み込みました (F:\stockModel\research\cache\_cache_full_macro_pool.pkl)
+[*] split date: 2025-12-18
+[+] train=69360 val=26821
+
+[*] 5seedを最大10並列で学習します...
+[worker short_v2 seed=42] memmap load: train=41.8MB val=16.2MB
+[worker short_v2 seed=43] memmap load: train=41.8MB val=16.2MB
+[00:00:00]   [parallel_sweep(short_v2,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(short_v2,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker short_v2 seed=44] memmap load: train=41.8MB val=16.2MB
+[00:00:00]   [parallel_sweep(short_v2,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker short_v2 seed=45] memmap load: train=41.8MB val=16.2MB
+[00:00:00]   [parallel_sweep(short_v2,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker short_v2 seed=46] memmap load: train=41.8MB val=16.2MB
+[00:00:00]   [parallel_sweep(short_v2,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:14]   [parallel_sweep(short_v2,seed=43)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:00:14]   [parallel_sweep(short_v2,seed=42)] epoch  1/30: train_loss=0.6941 val_loss=0.6928 <- best
+[00:00:14]   [parallel_sweep(short_v2,seed=44)] epoch  1/30: train_loss=0.6942 val_loss=0.6935 <- best
+[00:00:14]   [parallel_sweep(short_v2,seed=45)] epoch  1/30: train_loss=0.6941 val_loss=0.6933 <- best
+[00:00:15]   [parallel_sweep(short_v2,seed=46)] epoch  1/30: train_loss=0.6938 val_loss=0.6931 <- best
+[00:00:26]   [parallel_sweep(short_v2,seed=43)] epoch  2/30: train_loss=0.6932 val_loss=0.6931 <- best
+[00:00:27]   [parallel_sweep(short_v2,seed=44)] epoch  2/30: train_loss=0.6933 val_loss=0.6932 <- best
+[00:00:27]   [parallel_sweep(short_v2,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6931 <- best
+[00:00:39]   [parallel_sweep(short_v2,seed=44)] epoch  3/30: train_loss=0.6930 val_loss=0.6930 <- best
+[00:01:04]   [parallel_sweep(short_v2,seed=42)] epoch  5/30: train_loss=0.6925 val_loss=0.6931 (patience 4/7)
+[00:01:04]   [parallel_sweep(short_v2,seed=43)] epoch  5/30: train_loss=0.6925 val_loss=0.6936 (patience 3/7)
+[00:01:04]   [parallel_sweep(short_v2,seed=45)] epoch  5/30: train_loss=0.6924 val_loss=0.6936 (patience 4/7)
+[00:01:04]   [parallel_sweep(short_v2,seed=44)] epoch  5/30: train_loss=0.6927 val_loss=0.6932 (patience 2/7)
+[00:01:04]   [parallel_sweep(short_v2,seed=46)] epoch  5/30: train_loss=0.6924 val_loss=0.6936 (patience 3/7)
+[00:01:41]   [parallel_sweep(short_v2,seed=45)] epoch  8/30: train_loss=0.6919 val_loss=0.6941 (patience 7/7)
+[00:01:41] [+] [parallel_sweep(short_v2,seed=45) seed=45] 学習完了 best_val_loss=0.6933
+[worker short_v2 seed=45] train_model elapsed=101.1s
+[00:01:41]   [parallel_sweep(short_v2,seed=42)] epoch  8/30: train_loss=0.6922 val_loss=0.6933 (patience 7/7)
+[00:01:41] [+] [parallel_sweep(short_v2,seed=42) seed=42] 学習完了 best_val_loss=0.6928
+[worker short_v2 seed=42] train_model elapsed=101.5s
+[00:01:49]   [parallel_sweep(short_v2,seed=43)] epoch  9/30: train_loss=0.6919 val_loss=0.6941 (patience 7/7)
+[00:01:49] [+] [parallel_sweep(short_v2,seed=43) seed=43] 学習完了 best_val_loss=0.6931
+[worker short_v2 seed=43] train_model elapsed=109.4s
+[00:01:49]   [parallel_sweep(short_v2,seed=46)] epoch  9/30: train_loss=0.6918 val_loss=0.6940 (patience 7/7)
+[00:01:49] [+] [parallel_sweep(short_v2,seed=46) seed=46] 学習完了 best_val_loss=0.6931
+[worker short_v2 seed=46] train_model elapsed=109.2s
+[00:01:56]   [parallel_sweep(short_v2,seed=44)] epoch 10/30: train_loss=0.6916 val_loss=0.6942 (patience 7/7)
+[00:01:56] [+] [parallel_sweep(short_v2,seed=44) seed=44] 学習完了 best_val_loss=0.6930
+[worker short_v2 seed=44] train_model elapsed=116.6s
+[+] 学習完了: 実時間=121.2秒
+[+] チェックポイントを保存しました: F:\stockModel\research\short_exp\..\cache\short_model_cache_v2

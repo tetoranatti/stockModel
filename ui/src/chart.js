@@ -88,7 +88,7 @@ function initChart(containerElem) {
   });
 }
 
-function updateChartData(details, targetPrice, stopPrice, dipPrice) {
+function updateChartData(details, targetPrice, stopPrice, dipPrice, side = 'long') {
   if (!candleSeries) return;
 
   candleSeries.setData(details.bars);
@@ -108,13 +108,15 @@ function updateChartData(details, targetPrice, stopPrice, dipPrice) {
   if (slLine) candleSeries.removePriceLine(slLine);
   if (dipLine) candleSeries.removePriceLine(dipLine);
 
+  // ショートはtarget/stopの向きがロングと逆(targetが下・stopが上)なので、ラインの
+  // 表示タイトルだけサイドに応じて反転する(価格自体はapp.js側で既に正しく計算済み)。
   tpLine = candleSeries.createPriceLine({
     price: targetPrice,
     color: '#22c55e',
     lineWidth: 2,
     lineStyle: 0,
     axisLabelVisible: true,
-    title: '利確 (+2.0 ATR)',
+    title: side === 'short' ? '利確 (-2.0 ATR)' : '利確 (+2.0 ATR)',
   });
 
   dipLine = candleSeries.createPriceLine({
@@ -123,7 +125,7 @@ function updateChartData(details, targetPrice, stopPrice, dipPrice) {
     lineWidth: 2,
     lineStyle: 2,
     axisLabelVisible: true,
-    title: '押し目待機 (-0.5 ATR)',
+    title: side === 'short' ? '戻り待ち (+0.5 ATR)' : '押し目待機 (-0.5 ATR)',
   });
 
   slLine = candleSeries.createPriceLine({
@@ -132,7 +134,7 @@ function updateChartData(details, targetPrice, stopPrice, dipPrice) {
     lineWidth: 2,
     lineStyle: 0,
     axisLabelVisible: true,
-    title: '損切 (-1.0 ATR)',
+    title: side === 'short' ? '損切 (+1.0 ATR)' : '損切 (-1.0 ATR)',
   });
 
   // 直近70営業日フォーカス

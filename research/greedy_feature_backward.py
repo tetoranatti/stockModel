@@ -39,11 +39,15 @@ import greedy_feature_search as g
 RESULT_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "greedy_backward_log.parquet")
 
 
-def run_backward_elimination(margin=0.0, max_concurrent=10):
+def run_backward_elimination(margin=0.0, max_concurrent=10,
+                              build_dataset_fn=None, prepare_backtest_pool_fn=None,
+                              result_log_path=None):
     import torch
     import pandas as pd
-    import stage3_toggle_experiment as m
+    import stage3_exp.experiment_context as m
     import parallel_seed_sweep as pss
+
+    result_log_path = result_log_path or RESULT_LOG_PATH
 
     t_start = time.time()
     m.log("[backward] データプール構築(1回だけ)...")
@@ -55,7 +59,8 @@ def run_backward_elimination(margin=0.0, max_concurrent=10):
     # round 0: 現在の全16特徴量構成を、現行ラベル設定(BARRIER_MODE等)でフレッシュに学習する
     # (旧ラベルで作られたbaseline_model_cacheはfingerprintが変わっているので自動的に別物になる)。
     tr0, va0, pool0 = g.build_config_dataset(m, selected_stock, selected_macro, pool, margin_pool, sector_pool,
-                                              macro_pool_df, loss_regime_labels, shared_split_date)
+                                              macro_pool_df, loss_regime_labels, shared_split_date,
+                                              build_dataset_fn, prepare_backtest_pool_fn)
     m.log(f"[backward] 全{len(selected_stock)+len(selected_macro)}特徴量構成: "
           f"train={len(tr0[2])} val={len(va0[2])} pool={len(pool0)}")
 
@@ -81,7 +86,7 @@ def run_backward_elimination(margin=0.0, max_concurrent=10):
                      margin=margin, n_candidates=len(selected_stock) + len(selected_macro), adopted=True,
                      selected_stock=str(selected_stock), selected_macro=str(selected_macro),
                      elapsed_sec=time.time() - t_start)]
-    _save_history(history)
+    _save_history(history, result_log_path)
 
     round_num = 0
     while True:
@@ -105,7 +110,8 @@ def run_backward_elimination(margin=0.0, max_concurrent=10):
                 m.log(f"[backward] {feat}({side})を外すと片側がゼロになるためスキップ")
                 continue
             tr, va, pool_bt = g.build_config_dataset(m, s_cols, mc_cols, pool, margin_pool, sector_pool,
-                                                       macro_pool_df, loss_regime_labels, shared_split_date)
+                                                       macro_pool_df, loss_regime_labels, shared_split_date,
+                                                       build_dataset_fn, prepare_backtest_pool_fn)
             configs[feat] = (tr, va, s_cols, mc_cols)
             meta[feat] = (side, s_cols, mc_cols, pool_bt)
 
@@ -143,7 +149,7 @@ def run_backward_elimination(margin=0.0, max_concurrent=10):
                              reference_pf=reference_pf, margin=margin, n_candidates=len(configs), adopted=adopted,
                              selected_stock=str(meta[best_feat][1]), selected_macro=str(meta[best_feat][2]),
                              elapsed_sec=time.time() - t_start))
-        _save_history(history)
+        _save_history(history, result_log_path)
 
         if adopted:
             m.log(f"[backward] round {round_num}: {best_feat}を除外 (PF {reference_pf:.3f} -> {best_pf:.3f}, "
@@ -181,9 +187,9 @@ def run_backward_elimination(margin=0.0, max_concurrent=10):
                 final_pf=reference_pf, full_pf=history[0]['pf'], history=history)
 
 
-def _save_history(history):
+def _save_history(history, result_log_path=None):
     import pandas as pd
-    pd.DataFrame(history).to_parquet(RESULT_LOG_PATH, index=False)
+    pd.DataFrame(history).to_parquet(result_log_path or RESULT_LOG_PATH, index=False)
 
 
 if __name__ == "__main__":

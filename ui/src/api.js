@@ -6,9 +6,20 @@ const path = require('path');
 const BASE_DIR = path.resolve(__dirname, '..', '..'); // プロジェクトのルートディレクトリを取得
 const CACHE_DIR = path.join(BASE_DIR, 'data', 'cache');
 const SECTOR_MASTER_PATH = path.join(BASE_DIR, 'data', 'jpx_sector_master.json');
+// build_jquants_cache.pyが縦持ち(1行=1銘柄1日)で蓄積するOHLCVキャッシュ。以前は
+// これをpivotしてticker別に再整形したchart_candles_*.jsonを別途生成していたが、
+// hyparquet(依存ゼロの純JSパーサ)でこのparquetをUI側から直接読めるようになったため、
+// 中間JSONの生成・維持(2箇所を同期させる手間。分割調整バグ修復時に両方個別に
+// 直す必要があった)をやめてこちらを直接使う(2026-09-24)。
+const DAILY_BARS_PARQUET_PATH = path.join(CACHE_DIR, 'daily_screening_bars_raw.parquet');
+// 1銘柄あたりチャートに保持する最大本数。このparquetは全履歴を無期限に蓄積し続けるため
+// (build_jquants_cache.py側でプルーニングしていない)、上限を設けて肥大化に備える。
+const MAX_BARS_PER_TICKER = 400;
 
 let sectorMaster = null;
 const datedCacheMemo = {}; // prefix -> { path, data }
+let dailyBarsCache = null;      // Map<ticker, bar[]>
+let dailyBarsCacheMtimeMs = null;
 
 function getLocalTodayStr() {
   const d = new Date();
@@ -64,8 +75,55 @@ function loadLatestDatedJson(prefix) {
   return null;
 }
 
-function getLatestChartCache() {
-  return loadLatestDatedJson('chart_candles');
+// daily_screening_bars_raw.parquet(縦持ち: Date/ticker/Open/High/Low/Close/Volume)を
+// hyparquetで読み、ticker別のbars配列(chart_candles_*.json時代と同じ形)にまとめてメモ化する。
+// hyparquetはESM専用パッケージのためrequireできず、動的import()を使う
+// (Node自体はNode.jsモジュールキャッシュを持つので2回目以降のimport()は安価)。
+async function getDailyBarsCache() {
+  if (!fs.existsSync(DAILY_BARS_PARQUET_PATH)) {
+    console.error(`[!] ${DAILY_BARS_PARQUET_PATH} が見つかりません`);
+    return null;
+  }
+
+  const mtimeMs = fs.statSync(DAILY_BARS_PARQUET_PATH).mtimeMs;
+  if (dailyBarsCache && dailyBarsCacheMtimeMs === mtimeMs) {
+    return dailyBarsCache;
+  }
+
+  const { asyncBufferFromFile, parquetReadObjects } = await import('hyparquet');
+  const file = await asyncBufferFromFile(DAILY_BARS_PARQUET_PATH);
+  const rows = await parquetReadObjects({
+    file,
+    columns: ['Date', 'ticker', 'Open', 'High', 'Low', 'Close', 'Volume'],
+  });
+
+  const byTicker = new Map();
+  for (const r of rows) {
+    let list = byTicker.get(r.ticker);
+    if (!list) {
+      list = [];
+      byTicker.set(r.ticker, list);
+    }
+    list.push(r);
+  }
+
+  for (const [ticker, list] of byTicker) {
+    list.sort((a, b) => a.Date - b.Date);
+    const trimmed = list.length > MAX_BARS_PER_TICKER ? list.slice(list.length - MAX_BARS_PER_TICKER) : list;
+    byTicker.set(ticker, trimmed.map(r => ({
+      time: r.Date.toISOString().slice(0, 10),
+      open: r.Open,
+      high: r.High,
+      low: r.Low,
+      close: r.Close,
+      volume: r.Volume,
+    })));
+  }
+
+  dailyBarsCache = byTicker;
+  dailyBarsCacheMtimeMs = mtimeMs;
+  console.log(`[+] daily_screening_bars_raw.parquet 読込完了 (銘柄数: ${byTicker.size}, 全${rows.length}行)`);
+  return dailyBarsCache;
 }
 
 function loadSectorMaster() {
@@ -117,17 +175,17 @@ async function fetchStockDetails(ticker) {
   const companyName = getCompanyName(rawCode, dotCode);
   const { earningsDate, daysUntilEarnings } = getEarningsInfo(dotCode);
 
-  const cache = getLatestChartCache();
+  const cache = await getDailyBarsCache();
 
   if (!cache) {
-    console.error(`[!] キャッシュオブジェクトが空です (CACHE_DIR: ${CACHE_DIR})`);
+    console.error(`[!] 株価キャッシュが空です (${DAILY_BARS_PARQUET_PATH})`);
     return { companyName, bars: [], volumes: [], earningsDate, daysUntilEarnings };
   }
 
-  const rawBars = cache[dotCode] || cache[rawCode];
+  const rawBars = cache.get(dotCode) || cache.get(rawCode);
 
   if (!rawBars || rawBars.length === 0) {
-    console.warn(`[!] 銘柄 [${ticker}] の足データがJSON内にありません（キー候補: ${dotCode}, ${rawCode}）`);
+    console.warn(`[!] 銘柄 [${ticker}] の足データがキャッシュ内にありません（キー候補: ${dotCode}, ${rawCode}）`);
     return { companyName, bars: [], volumes: [], earningsDate, daysUntilEarnings };
   }
 

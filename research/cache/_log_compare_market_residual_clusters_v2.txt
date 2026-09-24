@@ -1,0 +1,305 @@
+[*] ユニバース: 150銘柄 (F:\stockModel\universe_150_tickers.txt)
+[cache] 特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_full_feature_pool.pkl)
+[cache] マージン特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_margin_pool.pkl)
+[cache] セクター相対特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_sector_relative_pool.pkl)
+[cache] マクロ特徴量プールキャッシュを読み込みました (F:\stockModel\research\cache\_cache_full_macro_pool.pkl)
+[*] split date: 2025-12-17
+[+] train=69210 val=26821 backtest_pool=26821
+[*] seeds=[42, 43, 44, 45, 46] を最大10並列で学習します...
+[worker base seed=42] memmap load: train=41.7MB val=16.2MB
+[worker base seed=43] memmap load: train=41.7MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=42)] cross-sectional連続バッチ: train=468 val=179
+[worker base seed=44] memmap load: train=41.7MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=43)] cross-sectional連続バッチ: train=468 val=179
+[00:00:00]   [parallel_sweep(base,seed=44)] cross-sectional連続バッチ: train=468 val=179
+[worker base seed=45] memmap load: train=41.7MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=45)] cross-sectional連続バッチ: train=468 val=179
+[worker base seed=46] memmap load: train=41.7MB val=16.2MB
+[00:00:00]   [parallel_sweep(base,seed=46)] cross-sectional連続バッチ: train=468 val=179
+[00:00:14]   [parallel_sweep(base,seed=46)] epoch  1/30: train_loss=0.6936 val_loss=0.6930 <- best
+[00:00:15]   [parallel_sweep(base,seed=42)] epoch  1/30: train_loss=0.6940 val_loss=0.6932 <- best
+[00:00:15]   [parallel_sweep(base,seed=43)] epoch  1/30: train_loss=0.6940 val_loss=0.6932 <- best
+[00:00:15]   [parallel_sweep(base,seed=44)] epoch  1/30: train_loss=0.6943 val_loss=0.6932 <- best
+[00:00:15]   [parallel_sweep(base,seed=45)] epoch  1/30: train_loss=0.6933 val_loss=0.6930 <- best
+[00:00:27]   [parallel_sweep(base,seed=46)] epoch  2/30: train_loss=0.6931 val_loss=0.6927 <- best
+[00:00:28]   [parallel_sweep(base,seed=44)] epoch  2/30: train_loss=0.6928 val_loss=0.6929 <- best
+[00:00:29]   [parallel_sweep(base,seed=42)] epoch  2/30: train_loss=0.6927 val_loss=0.6932 <- best
+[00:00:28]   [parallel_sweep(base,seed=43)] epoch  2/30: train_loss=0.6929 val_loss=0.6931 <- best
+[00:00:29]   [parallel_sweep(base,seed=45)] epoch  2/30: train_loss=0.6926 val_loss=0.6927 <- best
+[00:00:40]   [parallel_sweep(base,seed=46)] epoch  3/30: train_loss=0.6926 val_loss=0.6924 <- best
+[00:00:43]   [parallel_sweep(base,seed=42)] epoch  3/30: train_loss=0.6926 val_loss=0.6931 <- best
+[00:00:56]   [parallel_sweep(base,seed=42)] epoch  4/30: train_loss=0.6923 val_loss=0.6930 <- best
+[00:01:05]   [parallel_sweep(base,seed=46)] epoch  5/30: train_loss=0.6924 val_loss=0.6925 (patience 2/7)
+[00:01:09]   [parallel_sweep(base,seed=44)] epoch  5/30: train_loss=0.6915 val_loss=0.6937 (patience 3/7)
+[00:01:09]   [parallel_sweep(base,seed=42)] epoch  5/30: train_loss=0.6922 val_loss=0.6928 <- best
+[00:01:09]   [parallel_sweep(base,seed=43)] epoch  5/30: train_loss=0.6920 val_loss=0.6939 (patience 3/7)
+[00:01:09]   [parallel_sweep(base,seed=45)] epoch  5/30: train_loss=0.6919 val_loss=0.6929 (patience 3/7)
+[00:01:48]   [parallel_sweep(base,seed=42)] epoch  8/30: train_loss=0.6918 val_loss=0.6925 <- best
+[00:02:01]   [parallel_sweep(base,seed=44)] epoch  9/30: train_loss=0.6904 val_loss=0.6948 (patience 7/7)
+[00:02:01] [+] [parallel_sweep(base,seed=44) seed=44] 学習完了 best_val_loss=0.6929
+[worker base seed=44] train_model elapsed=121.5s
+[00:02:01]   [parallel_sweep(base,seed=43)] epoch  9/30: train_loss=0.6911 val_loss=0.6939 (patience 7/7)
+[00:02:01] [+] [parallel_sweep(base,seed=43) seed=43] 学習完了 best_val_loss=0.6931
+[worker base seed=43] train_model elapsed=122.0s
+[00:02:02]   [parallel_sweep(base,seed=45)] epoch  9/30: train_loss=0.6907 val_loss=0.6933 (patience 7/7)
+[00:02:02] [+] [parallel_sweep(base,seed=45) seed=45] 学習完了 best_val_loss=0.6927
+[worker base seed=45] train_model elapsed=122.0s
+[00:02:04]   [parallel_sweep(base,seed=46)] epoch 10/30: train_loss=0.6906 val_loss=0.6937 (patience 7/7)
+[00:02:04] [+] [parallel_sweep(base,seed=46) seed=46] 学習完了 best_val_loss=0.6924
+[worker base seed=46] train_model elapsed=124.9s
+[00:02:09]   [parallel_sweep(base,seed=42)] epoch 10/30: train_loss=0.6916 val_loss=0.6927 (patience 2/7)
+[00:02:50]   [parallel_sweep(base,seed=42)] epoch 15/30: train_loss=0.6907 val_loss=0.6929 (patience 7/7)
+[00:02:50] [+] [parallel_sweep(base,seed=42) seed=42] 学習完了 best_val_loss=0.6925
+[worker base seed=42] train_model elapsed=170.5s
+[+] 全5seed学習完了: 実時間=175.1秒
+
+==========================================================================================
+【ベースライン(制約なし) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None            None     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None            None     537 1.508831 0.014297 0.490121 -0.288228        0.603323         1.669285                0
+     5           None            None     895 1.636415 0.016700 0.821297 -0.402760        0.581939         1.939263                0
+    10           None            None    1790 1.653961 0.016703 1.258620 -0.441732        0.591742         2.178309                0
+    20           None            None    3580 1.591143 0.014298 1.466351 -0.420991        0.604115         2.035040                0
+    30           None            None    5370 1.573200 0.012665 1.524221 -0.419832        0.554129         1.951920                0
+
+==========================================================================================
+【現行クラスタ制約(method=monthly_consensus, N_CLUSTERS=10, max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.589206 0.016069 0.321038 -0.233371        0.659286         1.952715                0
+     5           None                2     895 1.684500 0.017405 0.490030 -0.370249        0.640726         2.782463                0
+    10           None                2    1790 1.804744 0.017589 0.777246 -0.348216        0.774170         2.499132                0
+    20           None                2    2506 1.698767 0.014022 0.759437 -0.272772        0.747732         1.993329                0
+    30           None                2    2506 1.698767 0.014022 0.759437 -0.272772        0.747732         1.993329                0
+
+[*] market_residual_corr(linkage=average) k=10 クラスタサイズ分布(候補ユニバース全体、最大クラスタ占有率=54.7%):
+C0    152
+C1      3
+C2    320
+C3     55
+C4      4
+C5      9
+C6      4
+C7     25
+C8      9
+C9      4
+
+==========================================================================================
+【market_residual_corr(linkage=average) k=10 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.573497 0.016208 0.302182 -0.223348        0.581049         1.912824                0
+     5           None                2     895 1.648600 0.016560 0.522489 -0.328917        0.498614         2.070031                1
+    10           None                2    1790 1.482040 0.010843 0.593709 -0.248962        0.667345         1.920467                0
+    20           None                2    2327 1.477363 0.010900 0.753768 -0.231078        0.708420         1.744323                0
+    30           None                2    2327 1.477363 0.010900 0.753768 -0.231078        0.708420         1.744323                0
+
+[*] market_residual_corr(linkage=average) k=15 クラスタサイズ分布(候補ユニバース全体、最大クラスタ占有率=53.0%):
+C0     310
+C1       9
+C10      4
+C11      9
+C12      4
+C13      4
+C14      2
+C2       8
+C3      55
+C4       3
+C5     133
+C6       6
+C7      25
+C8       9
+C9       4
+
+==========================================================================================
+【market_residual_corr(linkage=average) k=15 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.589899 0.016623 0.308169 -0.222991        0.585544         1.912824                0
+     5           None                2     895 1.606584 0.015782 0.565436 -0.323825        0.474923         1.817341                1
+    10           None                2    1790 1.459127 0.010832 0.638504 -0.278348        0.609700         1.947362                0
+    20           None                2    3043 1.505568 0.011582 1.009029 -0.235733        0.660657         1.930876                0
+    30           None                2    3043 1.505568 0.011582 1.009029 -0.235733        0.660657         1.930876                0
+
+[*] market_residual_corr(linkage=average) k=20 クラスタサイズ分布(候補ユニバース全体、最大クラスタ占有率=52.5%):
+C0       8
+C1     307
+C10      4
+C11      9
+C12      4
+C13      4
+C14      2
+C15      2
+C16      2
+C17      1
+C18      1
+C19      1
+C2     133
+C3       9
+C4       7
+C5      54
+C6       6
+C7      25
+C8       2
+C9       4
+
+==========================================================================================
+【market_residual_corr(linkage=average) k=20 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.589899 0.016623 0.308169 -0.222991        0.585544         1.912824                0
+     5           None                2     895 1.606584 0.015782 0.565436 -0.323825        0.474923         1.817341                1
+    10           None                2    1790 1.459127 0.010832 0.638504 -0.278348        0.609700         1.947362                0
+    20           None                2    3043 1.505568 0.011582 1.009029 -0.235733        0.660657         1.930876                0
+    30           None                2    3043 1.505568 0.011582 1.009029 -0.235733        0.660657         1.930876                0
+
+[*] market_residual_corr(linkage=complete) k=15 クラスタサイズ分布(候補ユニバース全体、最大クラスタ占有率=25.3%):
+C0      58
+C1      23
+C10     15
+C11      7
+C12     14
+C13      6
+C14     29
+C2      14
+C3      45
+C4     108
+C5     148
+C6      30
+C7      14
+C8      30
+C9      44
+
+==========================================================================================
+【market_residual_corr(linkage=complete) k=15 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.558893 0.015920 0.320145 -0.223687        0.571309         1.912824                0
+     5           None                2     895 1.550831 0.014649 0.539593 -0.322080        0.525106         1.723019                0
+    10           None                2    1790 1.430325 0.010333 0.792032 -0.283238        0.535316         1.781656                0
+    20           None                2    3580 1.386531 0.008043 1.107293 -0.284450        0.620351         1.629826                0
+    30           None                2    5191 1.424980 0.008364 1.016776 -0.253750        0.701346         1.608052                0
+
+[*] market_residual_corr(linkage=complete) k=20 クラスタサイズ分布(候補ユニバース全体、最大クラスタ占有率=25.3%):
+C0      16
+C1     108
+C10      8
+C11      7
+C12     14
+C13      6
+C14     21
+C15     16
+C16      7
+C17      6
+C18     18
+C19      6
+C2      30
+C3      14
+C4      15
+C5     148
+C6      29
+C7      42
+C8      30
+C9      44
+
+==========================================================================================
+【market_residual_corr(linkage=complete) k=20 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.558893 0.015920 0.320145 -0.223687        0.571309         1.912824                0
+     5           None                2     895 1.550831 0.014649 0.539593 -0.322080        0.525106         1.723019                0
+    10           None                2    1790 1.431632 0.010354 0.792032 -0.283238        0.535316         1.781656                0
+    20           None                2    3580 1.380314 0.007841 1.097187 -0.276635        0.637215         1.564292                0
+    30           None                2    5370 1.407948 0.007812 1.024588 -0.251752        0.680151         1.577662                0
+
+[*] market_residual_spectral k=10 クラスタサイズ分布(候補ユニバース全体、最大クラスタ占有率=43.1%):
+C0     25
+C1    252
+C2      9
+C3     55
+C4     45
+C5     33
+C6     26
+C7     23
+C8     25
+C9     92
+
+==========================================================================================
+【market_residual_spectral k=10 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.630118 0.017240 0.308871 -0.205859        0.691107         1.963698                0
+     5           None                2     895 1.734147 0.019161 0.644639 -0.306671        0.627882         1.946342                0
+    10           None                2    1790 1.488330 0.011920 0.692690 -0.293741        0.639437         1.845194                0
+    20           None                2    3580 1.473593 0.010223 1.079033 -0.253174        0.663268         1.772867                0
+    30           None                2    3580 1.473593 0.010223 1.079033 -0.253174        0.663268         1.772867                0
+
+[*] market_residual_spectral k=15 クラスタサイズ分布(候補ユニバース全体、最大クラスタ占有率=33.3%):
+C0     101
+C1     195
+C10     25
+C11     10
+C12     30
+C13      6
+C14      7
+C2      72
+C3       9
+C4      14
+C5      20
+C6      13
+C7      34
+C8      23
+C9      26
+
+==========================================================================================
+【market_residual_spectral k=15 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.566141 0.016085 0.311927 -0.223542        0.579319         1.912824                0
+     5           None                2     895 1.562280 0.015056 0.569105 -0.320981        0.513462         1.714832                0
+    10           None                2    1790 1.427672 0.010349 0.794093 -0.284046        0.610501         1.675606                0
+    20           None                2    3580 1.419873 0.009088 1.172275 -0.268633        0.599847         1.501053                0
+    30           None                2    4833 1.476087 0.010012 1.030266 -0.232284        0.656138         1.578804                0
+
+[*] market_residual_spectral k=20 クラスタサイズ分布(候補ユニバース全体、最大クラスタ占有率=34.5%):
+C0       6
+C1      67
+C10     16
+C11      7
+C12      3
+C13     28
+C14     16
+C15      6
+C16     17
+C17    202
+C18      4
+C19     22
+C2       6
+C3      11
+C4       9
+C5     103
+C6      14
+C7      33
+C8       6
+C9       9
+
+==========================================================================================
+【market_residual_spectral k=20 クラスタ制約(max_per_cluster=2) TOPN別PF】
+==========================================================================================
+ top_n max_per_sector  max_per_cluster  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1           None                2     179 1.546671 0.017527 0.163364 -0.149798        0.633247         1.579498                0
+     3           None                2     537 1.580700 0.016418 0.317206 -0.223439        0.579319         1.912824                0
+     5           None                2     895 1.571547 0.015276 0.562554 -0.329952        0.513462         1.714832                0
+    10           None                2    1790 1.424015 0.010338 0.772167 -0.299217        0.589293         1.698042                0
+    20           None                2    3580 1.423249 0.009205 1.155282 -0.293273        0.583138         1.546402                0
+    30           None                2    5370 1.456284 0.009490 1.016412 -0.240512        0.672021         1.644577                0

@@ -2,9 +2,8 @@
 
 import os
 import time
-import numpy as np
+
 import pandas as pd
-import torch
 
 from modules.macro_features import load_macro_slim5
 from modules.cross_sectional_features import valid_cross_section_dates
@@ -22,7 +21,7 @@ from .data_builder import *
 from .cache import baseline_cache_fingerprint
 from .model_factory import build_model
 from .trainer import train_model
-from .inference import run_backtest_inference, run_backtest_inference_ensemble
+from .inference import run_backtest_inference_ensemble
 from .diagnostics import *
 
 RESEARCH_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -96,7 +95,6 @@ def run_experiment():
             f"REGIME_FILTER='{REGIME_FILTER}'は未対応です(None / 'LOW' / 'MID' / 'HIGH'のみ)"
         )
 
-    regime_labels = compute_regime_labels(macro_pool_df)
     if USE_REGIME_AWARE_LOSS:
         log(
             "[*] USE_REGIME_AWARE_LOSS=True: NearPairRankingLossのペアを同一regime同士に限定します"
@@ -105,8 +103,7 @@ def run_experiment():
 
     # データセット・バックテストプールはシードに依存しないので、シードループの外で1回だけ構築する
     log("[*] データセット・バックテストプール構築(シード非依存、1回だけ)...")
-    # regime_labels(全期間固定分位、報告用regime_breakdownのみで使う)とは別に、学習の
-    # ペアタグ付けにはlook-ahead無しの拡大窓版を使う。
+    # 学習のペアタグ付けにはlook-ahead無しの拡大窓版を使う。
     loss_regime_labels = (
         compute_regime_labels_expanding(macro_pool_df)
         if USE_REGIME_AWARE_LOSS
@@ -150,6 +147,7 @@ def run_experiment():
         regime_labels_for_loss=loss_regime_labels,
         global_split_date_override=shared_split_date,
     )
+    close_price_lookup_base = {}
     pool_base = prepare_backtest_pool(
         BASELINE_MACRO_COLS,
         BASELINE_STOCK_COLS,
@@ -159,7 +157,9 @@ def run_experiment():
         macro_pool_df,
         regime_filter=train_regime_filter,
         global_split_date_override=shared_split_date,
+        close_price_out=close_price_lookup_base,
     )
+    close_price_lookup_test = {}
     pool_test = prepare_backtest_pool(
         TEST_MACRO_COLS,
         TEST_STOCK_COLS,
@@ -169,13 +169,13 @@ def run_experiment():
         macro_pool_df,
         regime_filter=train_regime_filter,
         global_split_date_override=shared_split_date,
+        close_price_out=close_price_lookup_test,
     )
     log(
         f"[+] train0={len(tr0[2])} val0={len(va0[2])} / train1={len(tr1[2])} val1={len(va1[2])}"
     )
     log(f"[+] backtest_pool base={len(pool_base)} test={len(pool_test)}")
 
-    results_base, results_test = [], []
     models_base, models_test = [], []
     if PROFILE_FIRST_EPOCH:
         # プロファイリングは並列学習と相性が悪い(複数プロセスの出力が混ざる)ため、
@@ -191,7 +191,6 @@ def run_experiment():
                 "ベースライン(既存14固定)",
                 profile_this_call=(si == 0),
             )
-            d_base = run_backtest_inference(model_base, pool_base)
             model_test = train_model(
                 seed,
                 tr1,
@@ -200,29 +199,8 @@ def run_experiment():
                 TEST_MACRO_COLS,
                 f"テスト構成({len(TEST_FEATS)}個)",
             )
-            d_test = run_backtest_inference(model_test, pool_test)
-
-            r_base = evaluate(
-                d_base,
-                f"seed={seed} ベースライン score Top-K",
-                min_reliable_n=MIN_RELIABLE_N,
-                common_sample_k=COMMON_SAMPLE_K,
-                max_concurrent=MAX_CONCURRENT_POSITIONS,
-            )
-            r_test = evaluate(
-                d_test,
-                f"seed={seed} テスト構成 score Top-K",
-                min_reliable_n=MIN_RELIABLE_N,
-                common_sample_k=COMMON_SAMPLE_K,
-                max_concurrent=MAX_CONCURRENT_POSITIONS,
-            )
-            r_base["seed"] = seed
-            r_test["seed"] = seed
-            results_base.append(r_base)
-            results_test.append(r_test)
             models_base.append(model_base)
             models_test.append(model_test)
-            print()
     else:
         # base×seeds + test×seeds = 2*len(SEEDS)個の独立した学習ジョブを、1つのフラットな
         # jobリストとして並列学習する(parallel_seed_sweep.pyで検証済みの方式——3seed 2.44x、
@@ -304,42 +282,21 @@ def run_experiment():
                 )
 
         for seed in SEEDS:
-            log(f"=== seed={seed}(推論・評価) ===")
+            log(f"=== seed={seed}(モデル読み込み) ===")
             model_base = build_model(BASELINE_STOCK_COLS, BASELINE_MACRO_COLS)
             model_base.load_state_dict(
                 _torch.load(_out_paths[("base", seed)], map_location=DEVICE)
             )
             model_base.eval()
-            d_base = run_backtest_inference(model_base, pool_base)
 
             model_test = build_model(TEST_STOCK_COLS, TEST_MACRO_COLS)
             model_test.load_state_dict(
                 _torch.load(_out_paths[("test", seed)], map_location=DEVICE)
             )
             model_test.eval()
-            d_test = run_backtest_inference(model_test, pool_test)
 
-            r_base = evaluate(
-                d_base,
-                f"seed={seed} ベースライン score Top-K",
-                min_reliable_n=MIN_RELIABLE_N,
-                common_sample_k=COMMON_SAMPLE_K,
-                max_concurrent=MAX_CONCURRENT_POSITIONS,
-            )
-            r_test = evaluate(
-                d_test,
-                f"seed={seed} テスト構成 score Top-K",
-                min_reliable_n=MIN_RELIABLE_N,
-                common_sample_k=COMMON_SAMPLE_K,
-                max_concurrent=MAX_CONCURRENT_POSITIONS,
-            )
-            r_base["seed"] = seed
-            r_test["seed"] = seed
-            results_base.append(r_base)
-            results_test.append(r_test)
             models_base.append(model_base)
             models_test.append(model_test)
-            print()
 
         try:
             import shutil
@@ -353,122 +310,72 @@ def run_experiment():
 
     # アンサンブル評価: 単一seedはSTRONG BUYが特定regimeに偏る不安定性があるため、
     # 本番と同じsoftmax確率平均アンサンブル(predict_probabilities_ensemble_batch)での
-    # 評価も追加する。SEEDS=1個でも単一seedと同じ結果になるだけなのでスキップしない。
-    print("=" * 90)
-    print(
-        f"【アンサンブル評価({len(SEEDS)}seed平均、本番run_dynamic_regime_screening_v8.pyと同じロジック)】"
-    )
-    print("=" * 90)
+    # 評価を使う。SEEDS=1個でも単一seedと同じ結果になるだけなのでスキップしない。
     d_base_ens = run_backtest_inference_ensemble(models_base, pool_base)
     d_test_ens = run_backtest_inference_ensemble(models_test, pool_test)
-    r_base_ens = evaluate(
-        d_base_ens,
-        f"ベースライン(アンサンブル{len(SEEDS)}seed) score Top-K",
-        min_reliable_n=MIN_RELIABLE_N,
-        common_sample_k=COMMON_SAMPLE_K,
-        max_concurrent=MAX_CONCURRENT_POSITIONS,
-    )
-    r_test_ens = evaluate(
-        d_test_ens,
-        f"テスト構成(アンサンブル{len(SEEDS)}seed) score Top-K",
-        min_reliable_n=MIN_RELIABLE_N,
-        common_sample_k=COMMON_SAMPLE_K,
-        max_concurrent=MAX_CONCURRENT_POSITIONS,
-    )
+
+    def _topn_compare_table(**kwargs):
+        """TOPN別PF分析をbase/test両方で計算する(2026-09-23、ユーザー指摘: 実際に見ている
+        のはこの3表だけなのにtest側しか出しておらずbase/testの比較ができていなかったため)。
+        base_df/test_df/diff_df(pf差分のみ)を返す——表示側で縦二段に積んで出す
+        (2026-09-23再改修、ユーザー指摘: base_test列が横並びだと行が長すぎて比較しづらい)。"""
+        cols = [
+            "top_n", "trades", "pf", "avg_ret", "cagr", "max_dd",
+            "worst_month_pf", "median_month_pf", "pf_lt_05_months",
+        ]
+        base_df = evaluate_topn_curve(
+            d_base_ens, topn_list=[1, 3, 5, 10, 20, 30],
+            close_price_lookup=close_price_lookup_base, **kwargs,
+        )[cols]
+        test_df = evaluate_topn_curve(
+            d_test_ens, topn_list=[1, 3, 5, 10, 20, 30],
+            close_price_lookup=close_price_lookup_test, **kwargs,
+        )[cols]
+        diff_df = pd.DataFrame({
+            "top_n": base_df["top_n"].values,
+            "pf_base": base_df["pf"].values,
+            "pf_test": test_df["pf"].values,
+            "pf_diff": test_df["pf"].values - base_df["pf"].values,
+        })
+        return base_df, test_df, diff_df
+
+    def _print_topn_compare(title, **kwargs):
+        base_df, test_df, diff_df = _topn_compare_table(**kwargs)
+        print("\n" + "=" * 90)
+        print(title)
+        print("=" * 90)
+        print("  -- ベースライン --")
+        print(base_df.to_string(index=False))
+        print("  -- テスト構成 --")
+        print(test_df.to_string(index=False))
+        print("  -- 差分(pf_test - pf_base) --")
+        print(diff_df.to_string(index=False))
 
     # TOPN別PF分析 月毎のPFバラツキがTOPNのランキング分け能力の問題か確認する
-    print("\n" + "=" * 90)
-    print("【TOPN別PF分析】")
-    print("=" * 90)
-
-    topn_df = evaluate_topn_curve(
-        d_test_ens, topn_list=[1, 3, 5, 10, 20, 30], max_per_sector=MAX_PER_SECTOR
-    )
-
-    print(topn_df.to_string(index=False))
+    _print_topn_compare("【TOPN別PF分析(base vs test)】", max_per_sector=MAX_PER_SECTOR)
 
     # 60日リターン相関クラスタ制約版(2026-09-23追加、業種制約版との比較用)
     if TICKER_TO_CLUSTER:
-        print("\n" + "=" * 90)
-        print(f"【TOPN別PF分析(クラスタ制約 max_per_cluster={MAX_PER_CLUSTER}, "
-              f"N_CLUSTERS={N_CLUSTERS})】")
-        print("=" * 90)
-
-        topn_cluster_df = evaluate_topn_curve(
-            d_test_ens,
-            topn_list=[1, 3, 5, 10, 20, 30],
+        _print_topn_compare(
+            f"【TOPN別PF分析(クラスタ制約 max_per_cluster={MAX_PER_CLUSTER}, "
+            f"N_CLUSTERS={N_CLUSTERS}) base vs test】",
             max_per_cluster=MAX_PER_CLUSTER,
         )
 
-        print(topn_cluster_df.to_string(index=False))
-
-    monthly_topn_df = monthly_topn_pf_matrix(
-        d_test_ens,
-        topn_list=[1, 3, 5, 10, 20, 30],
+    monthly_topn_df_base = monthly_topn_pf_matrix(
+        d_base_ens, topn_list=[1, 3, 5, 10, 20, 30],
+    )
+    monthly_topn_df_test = monthly_topn_pf_matrix(
+        d_test_ens, topn_list=[1, 3, 5, 10, 20, 30],
     )
 
     print("\n" + "=" * 90)
     print("【月別 × TopN PF】")
     print("=" * 90)
-    print(monthly_topn_df.to_string())
-
-    # score(=EV_WIN_WEIGHT*p_win-EV_STOP_WEIGHT*p_stop、本番のev_scoreと同じ2:1重み)
-    # 上位K件で選ぶ。決定論的tie-break(evaluate()と同じ基準: score降順→ticker昇順→date昇順)
-    sub_base_ens = d_base_ens.sort_values(
-        ["score", "ticker", "date"], ascending=[False, True, True]
-    ).head(min(COMMON_SAMPLE_K, len(d_base_ens)))
-    sub_test_ens = d_test_ens.sort_values(
-        ["score", "ticker", "date"], ascending=[False, True, True]
-    ).head(min(COMMON_SAMPLE_K, len(d_test_ens)))
-    if len(sub_base_ens) > 0:
-        regime_breakdown(
-            sub_base_ens,
-            "ベースライン(アンサンブル)",
-            regime_labels,
-            min_reliable_n=MIN_RELIABLE_N,
-        )
-    if len(sub_test_ens) > 0:
-        regime_breakdown(
-            sub_test_ens,
-            "テスト構成(アンサンブル)",
-            regime_labels,
-            min_reliable_n=MIN_RELIABLE_N,
-        )
-    print(
-        f"\n  [判定・アンサンブル] baseline PF={r_base_ens['pf']:.2f} vs テスト構成 PF={r_test_ens['pf']:.2f} -> "
-        f"{'テスト構成の方が良い' if r_test_ens['pf'] > r_base_ens['pf'] else 'ベースラインの方が良い'}"
-        f"(単一seed毎の判定より、こちらの方が実運用のアンサンブル推論に近い)"
-    )
-    print()
-
-    # 日次Top-N運用評価。全期間score上位K件は特定の数日にシグナルが偏っていても検知できない
-    # ため、実際の運用(毎日DAILY_TOPN件しか執行できない)に忠実な評価をアンサンブル予測に追加。
-    print("=" * 90)
-    print(
-        f"【日次Top-N運用評価(1日あたり{DAILY_TOPN}件、アンサンブル{len(SEEDS)}seed)】"
-    )
-    print("=" * 90)
-    r_base_daily = evaluate_daily_topn(
-        d_base_ens,
-        f"ベースライン(日次Top-{DAILY_TOPN})",
-        n_per_day=DAILY_TOPN,
-        min_reliable_n=MIN_RELIABLE_N,
-        max_concurrent=MAX_CONCURRENT_POSITIONS,
-    )
-    r_test_daily = evaluate_daily_topn(
-        d_test_ens,
-        f"テスト構成(日次Top-{DAILY_TOPN})",
-        n_per_day=DAILY_TOPN,
-        min_reliable_n=MIN_RELIABLE_N,
-        max_concurrent=MAX_CONCURRENT_POSITIONS,
-    )
-    print(
-        f"\n  [判定・日次Top-N] baseline PF={r_base_daily['pf']:.2f} vs テスト構成 PF={r_test_daily['pf']:.2f} -> "
-        f"{'テスト構成の方が良い' if r_test_daily['pf'] > r_base_daily['pf'] else 'ベースラインの方が良い'}"
-        f"(全期間Top-Kより日々の執行に忠実。全期間Top-Kの判定と食い違う場合、全期間Top-Kの"
-        f"結果が特定の数日に偏っていた可能性が高い)"
-    )
-    print()
+    print("  -- ベースライン --")
+    print(monthly_topn_df_base.to_string())
+    print("  -- テスト構成 --")
+    print(monthly_topn_df_test.to_string())
 
     # base/testで特徴量セットが違うとdropnaで落ちる(ticker,date)が微妙に異なり得るため、
     # 両方に共通するサンプルだけに絞った比較も出す(「モデルの質の差」と「評価サンプル自体の
@@ -498,6 +405,7 @@ def run_experiment():
             min_reliable_n=MIN_RELIABLE_N,
             common_sample_k=COMMON_SAMPLE_K,
             max_concurrent=MAX_CONCURRENT_POSITIONS,
+            close_price_lookup=close_price_lookup_base,
         )
         r_test_common = evaluate(
             d_test_ens[mask_test_common],
@@ -505,6 +413,7 @@ def run_experiment():
             min_reliable_n=MIN_RELIABLE_N,
             common_sample_k=COMMON_SAMPLE_K,
             max_concurrent=MAX_CONCURRENT_POSITIONS,
+            close_price_lookup=close_price_lookup_test,
         )
         print(
             f"\n  [判定・共通サブセット] baseline PF={r_base_common['pf']:.2f} vs テスト構成 PF={r_test_common['pf']:.2f} -> "
@@ -513,108 +422,4 @@ def run_experiment():
         )
         print()
 
-    # 異なるモデル(seed)の生予測を単純にpd.concatして1つの大きなサンプルとして扱うのは
-    # 統計的に妥当でないため行わない。regimeごとの内訳は上のアンサンブル評価
-    # (複数モデルの確率平均、本番と同じ手法)の regime_breakdown を使う。
-
-    df_base = pd.DataFrame(results_base)
-    df_test = pd.DataFrame(results_test)
-
-    print("=" * 90)
-    print("【シード別サマリ(標準指標)】")
-    print("=" * 90)
-    cols_main = ["seed", "n", "win_rate", "pf", "avg_ret", "max_dd", "few_trades_flag"]
-    print("  -- ベースライン(既存14固定) --")
-    print(df_base[cols_main].to_string(index=False))
-    print("  -- テスト構成 --")
-    print(df_test[cols_main].to_string(index=False))
-
-    print("\n" + "=" * 90)
-    print("【シード別サマリ(top_k_pf・月別一貫性・銘柄集中度)】")
-    print("=" * 90)
-    cols_extra = [
-        "seed",
-        "top_k_pf",
-        "top_k_n",
-        "month_consistency",
-        "top1_pct",
-        "top5_pct",
-        "hhi",
-    ]
-    print("  -- ベースライン --")
-    print(df_base[cols_extra].to_string(index=False))
-    print("  -- テスト構成 --")
-    print(df_test[cols_extra].to_string(index=False))
-
-    print("\n" + "=" * 90)
-    print("【seedごとのPF差分(テスト構成 - ベースライン)】")
-    print("=" * 90)
-    diff_df = pd.DataFrame(
-        {
-            "seed": df_base["seed"],
-            "pf_base": df_base["pf"],
-            "pf_test": df_test["pf"],
-            "pf_diff": df_test["pf"] - df_base["pf"],
-            "top_k_pf_base": df_base["top_k_pf"],
-            "top_k_pf_test": df_test["top_k_pf"],
-            "top_k_pf_diff": df_test["top_k_pf"] - df_base["top_k_pf"],
-        }
-    )
-    print(diff_df.to_string(index=False))
-    n_seeds_test_better = (diff_df["pf_diff"] > 0).sum()
-    print(
-        f"\n  テスト構成がベースラインを上回ったseed数: {n_seeds_test_better}/{len(SEEDS)}"
-        f"(約定ベースPF基準) | {(diff_df['top_k_pf_diff'] > 0).sum()}/{len(SEEDS)}(top_k_pf基準)"
-    )
-
-    print("\n" + "=" * 90)
-    print("【mean ± std(組み合わせごとのシードばらつき比較用)】")
-    print("=" * 90)
-    finite_base_pf = df_base["pf"][np.isfinite(df_base["pf"])]
-    finite_test_pf = df_test["pf"][np.isfinite(df_test["pf"])]
-    print(
-        f"  ベースライン PF: mean={finite_base_pf.mean():.3f} std={finite_base_pf.std():.3f} "
-        f"(seed毎: {[round(x, 2) for x in df_base['pf']]})"
-    )
-    print(
-        f"  テスト構成   PF: mean={finite_test_pf.mean():.3f} std={finite_test_pf.std():.3f} "
-        f"(seed毎: {[round(x, 2) for x in df_test['pf']]})"
-    )
-    print(
-        f"  ベースライン win_rate: mean={df_base['win_rate'].mean():.1f}% std={df_base['win_rate'].std():.1f}%"
-    )
-    print(
-        f"  テスト構成   win_rate: mean={df_test['win_rate'].mean():.1f}% std={df_test['win_rate'].std():.1f}%"
-    )
-    print(
-        f"  ベースライン MaxDD: mean={df_base['max_dd'].mean()*100:.1f}% std={df_base['max_dd'].std()*100:.1f}%"
-    )
-    print(
-        f"  テスト構成   MaxDD: mean={df_test['max_dd'].mean()*100:.1f}% std={df_test['max_dd'].std()*100:.1f}%"
-    )
-
-    n_few_base = df_base["few_trades_flag"].sum()
-    n_few_test = df_test["few_trades_flag"].sum()
-    if n_few_base or n_few_test:
-        print(
-            f"\n  [!] 少数トレード警告(n<{MIN_RELIABLE_N}件): "
-            f"ベースライン {n_few_base}/{len(SEEDS)}シード、テスト構成 {n_few_test}/{len(SEEDS)}シード"
-            f" — 該当シードのPFは信頼性が低い可能性"
-        )
-
-    print("\n" + "=" * 90)
-    print(
-        f"【判定・単一seed平均】baseline PF mean={finite_base_pf.mean():.2f} vs テスト構成 PF mean={finite_test_pf.mean():.2f} -> "
-        f"{'テスト構成の方が良い' if finite_test_pf.mean() > finite_base_pf.mean() else 'ベースラインの方が良い(このテスト構成は不採用推奨)'}"
-    )
-    print(
-        f"    std比較: テスト構成のstdが{'大きい(不安定化)' if finite_test_pf.std() > finite_base_pf.std() else '小さい(安定化)'} "
-        f"(baseline std={finite_base_pf.std():.3f} vs test std={finite_test_pf.std():.3f})"
-    )
-    print(
-        f"【判定・アンサンブル(実運用に近い)】baseline PF={r_base_ens['pf']:.2f} vs テスト構成 PF={r_test_ens['pf']:.2f} -> "
-        f"{'テスト構成の方が良い' if r_test_ens['pf'] > r_base_ens['pf'] else 'ベースラインの方が良い'}"
-        f" (単一seed平均とアンサンブルの判定が食い違う場合は、単一seedのばらつき自体が"
-        f"regime依存の可能性があるため、アンサンブル側を優先すること)"
-    )
     print("=" * 90)

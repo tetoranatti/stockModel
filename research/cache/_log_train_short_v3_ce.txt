@@ -1,0 +1,45 @@
+[*] ユニバース: 150銘柄
+[*] 特徴量: stock=['stock_ret_1d', 'stock_ret_20d', 'rolling_beta', 'vol_ratio_5d', 'overnight_gap', 'dist_from_low20', 'gap_strength_5', 'atr_accel', 'dist_from_high60']
+[*] 特徴量: macro=['pin_dist_ratio', 'wall_spread', 'cta_net_norm', 'cta_momentum', 'nk_ret_norm']
+[*] ラベル: exit_class(0=Stop/1=Hold/2=Win) 損失: CrossEntropy(クラス重み付き)
+[cache] 特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_full_feature_pool.pkl)
+[cache] マージン特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_margin_pool.pkl)
+[cache] セクター相対特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_sector_relative_pool.pkl)
+[cache] マクロ特徴量プールキャッシュを読み込みました (F:\stockModel\research\cache\_cache_full_macro_pool.pkl)
+[*] split date: 2025-12-18
+[+] train=69360 val=26821
+[00:00:04]   [short_v3_ce seed=42] クラス分布(train): Stop=31937 Hold=15120 Win=22303 -> weight=[0.724, 1.529, 1.037]
+[00:00:05]   [short_v3_ce seed=42] train=69360 val=26821
+[00:00:07]   [short_v3_ce seed=42] epoch  1/30: train_loss=1.09810 val_loss=1.08635 <- best
+[00:00:14]   [short_v3_ce seed=42] epoch  5/30: train_loss=1.05802 val_loss=1.10861 (patience 4/7)
+[00:00:19]   [short_v3_ce seed=42] epoch  8/30: train_loss=1.05151 val_loss=1.11562 (patience 7/7)
+[00:00:19] [+] [short_v3_ce seed=42 seed=42] 学習完了 best_val_loss=1.08635
+[00:00:20]   [short_v3_ce seed=43] クラス分布(train): Stop=31937 Hold=15120 Win=22303 -> weight=[0.724, 1.529, 1.037]
+[00:00:20]   [short_v3_ce seed=43] train=69360 val=26821
+[00:00:21]   [short_v3_ce seed=43] epoch  1/30: train_loss=1.09751 val_loss=1.08723 <- best
+[00:00:23]   [short_v3_ce seed=43] epoch  2/30: train_loss=1.08481 val_loss=1.08385 <- best
+[00:00:28]   [short_v3_ce seed=43] epoch  5/30: train_loss=1.06064 val_loss=1.09664 (patience 3/7)
+[00:00:35]   [short_v3_ce seed=43] epoch  9/30: train_loss=1.04599 val_loss=1.13466 (patience 7/7)
+[00:00:35] [+] [short_v3_ce seed=43 seed=43] 学習完了 best_val_loss=1.08385
+[00:00:35]   [short_v3_ce seed=44] クラス分布(train): Stop=31937 Hold=15120 Win=22303 -> weight=[0.724, 1.529, 1.037]
+[00:00:35]   [short_v3_ce seed=44] train=69360 val=26821
+[00:00:37]   [short_v3_ce seed=44] epoch  1/30: train_loss=1.09830 val_loss=1.08796 <- best
+[00:00:44]   [short_v3_ce seed=44] epoch  5/30: train_loss=1.06090 val_loss=1.09776 (patience 4/7)
+[00:00:49]   [short_v3_ce seed=44] epoch  8/30: train_loss=1.04978 val_loss=1.11799 (patience 7/7)
+[00:00:49] [+] [short_v3_ce seed=44 seed=44] 学習完了 best_val_loss=1.08796
+[00:00:49]   [short_v3_ce seed=45] クラス分布(train): Stop=31937 Hold=15120 Win=22303 -> weight=[0.724, 1.529, 1.037]
+[00:00:49]   [short_v3_ce seed=45] train=69360 val=26821
+[00:00:51]   [short_v3_ce seed=45] epoch  1/30: train_loss=1.09879 val_loss=1.09226 <- best
+[00:00:53]   [short_v3_ce seed=45] epoch  2/30: train_loss=1.08380 val_loss=1.08720 <- best
+[00:00:58]   [short_v3_ce seed=45] epoch  5/30: train_loss=1.05699 val_loss=1.10788 (patience 3/7)
+[00:01:05]   [short_v3_ce seed=45] epoch  9/30: train_loss=1.04416 val_loss=1.12665 (patience 7/7)
+[00:01:05] [+] [short_v3_ce seed=45 seed=45] 学習完了 best_val_loss=1.08720
+[00:01:05]   [short_v3_ce seed=46] クラス分布(train): Stop=31937 Hold=15120 Win=22303 -> weight=[0.724, 1.529, 1.037]
+[00:01:05]   [short_v3_ce seed=46] train=69360 val=26821
+[00:01:06]   [short_v3_ce seed=46] epoch  1/30: train_loss=1.11208 val_loss=1.09629 <- best
+[00:01:08]   [short_v3_ce seed=46] epoch  2/30: train_loss=1.09166 val_loss=1.08400 <- best
+[00:01:10]   [short_v3_ce seed=46] epoch  3/30: train_loss=1.08005 val_loss=1.08394 <- best
+[00:01:13]   [short_v3_ce seed=46] epoch  5/30: train_loss=1.05935 val_loss=1.10273 (patience 2/7)
+[00:01:22]   [short_v3_ce seed=46] epoch 10/30: train_loss=1.03754 val_loss=1.12605 (patience 7/7)
+[00:01:22] [+] [short_v3_ce seed=46 seed=46] 学習完了 best_val_loss=1.08394
+[+] チェックポイントを保存しました: F:\stockModel\research\short_exp\..\cache\short_model_cache_v3_ce

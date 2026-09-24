@@ -65,21 +65,12 @@ def calc_pf(data):
 # ============================================================================
 
 
-def compute_max_drawdown(sub, max_concurrent=MAX_CONCURRENT_POSITIONS):
-    """同時保有上限max_concurrent・均等配分の資金曲線シミュレーションで最大ドローダウンを
-    算出する(本番backtest/run_event_driven_backtest_v8_exp.pyと同じロジック、2026-09-19追加)。
-
-    entry_date(D+1引け、2026-09-19修正——以前はdate=シグナル当日を使っており、実際の
-    約定日より1日早いタイミングで資金を拘束していた)を使う。
-
-    戻り値: (max_dd, executed_positions)。max_ddは負の値(例: -0.128 = -12.8%)。
-    executed_positionsはsub内で実際に枠が空いて約定した行の0始まり位置のlist
-    (2026-09-19追加、ユーザー指摘「同時保有制約後の同じ約定集合でPF・勝率・MaxDDを
-    計算」——枠が無くて約定しなかったトレードもPF/win_rateには数えてしまうと、
-    MaxDDだけ現実的な制約を反映し、PF/win_rateは反映しないという矛盾が生じるため、
-    呼び出し側でこの集合を使ってPF/win_rateも計算し直す)。"""
-    if len(sub) == 0:
-        return float("nan"), []
+def _compute_max_drawdown_event_only(sub, max_concurrent):
+    """close_price_lookupが無い場合のフォールバック(2026-09-19版ロジックそのまま)。
+    資金曲線はexit時にしか更新されないため、保有中の含み損益(未決済ポジションの
+    日々の時価変動)を一切反映しない——2026-09-23、ユーザー指摘で日次時価評価版
+    (compute_max_drawdown本体)に置き換えたが、価格データが渡せない呼び出し元
+    (単体テスト等)のために残す。"""
     events = []
     for pos, row in enumerate(sub.itertuples(index=False)):
         events.append((row.entry_date, 1, pos, row.ret_pct))
@@ -104,7 +95,146 @@ def compute_max_drawdown(sub, max_concurrent=MAX_CONCURRENT_POSITIONS):
         peak = max(peak, eq)
         if peak > 0:
             max_dd = min(max_dd, (eq - peak) / peak)
-    return max_dd, executed_positions
+    return max_dd, executed_positions, equity
+
+
+def compute_max_drawdown(sub, max_concurrent=MAX_CONCURRENT_POSITIONS, close_price_lookup=None):
+    """同時保有上限max_concurrent・均等配分の資金曲線シミュレーションで最大ドローダウンを
+    算出する(本番backtest/run_event_driven_backtest_v8_exp.pyと同じロジックから出発、
+    2026-09-19追加、2026-09-23に日次時価評価版へ拡張)。
+
+    entry_date(D+1引け、2026-09-19修正——以前はdate=シグナル当日を使っており、実際の
+    約定日より1日早いタイミングで資金を拘束していた)を使う。
+
+    close_price_lookup({ticker: Closeのpd.Series(日付index)})を渡すと、保有中の
+    ポジションを日次でClose価格に時価評価してから資金曲線を作る(2026-09-23、
+    ユーザー指摘「未決済ポジションの含み損益」「日をまたぐ評価損」に対応)。
+    旧実装はexit時にしか資金曲線を更新せず、保有中の含み損益が完全に無視されていた
+    (トレーリングストップで途中大きく含み損を抱えても最終リターンしか見えない)。
+    Noneの場合は_compute_max_drawdown_event_only()にフォールバックする。
+
+    日次評価のルール: entry_dateはentry_p(=Close[entry_date])を基準に含み損益0からスタート。
+    保有期間中の各日はその日のClose vs entry_pで含み損益を評価する(バリア/トレーリング
+    ストップはザラ場中の高値・安値で判定するため日中の真の底値はこれでも捕捉できないが、
+    日足データしか無い制約下での近似)。exit_date当日はClose評価ではなく実際の約定損益
+    (ret_pct、バリア/ストップ価格ベース)を確定させる。資金は同時保有max_concurrent枠・
+    entry時点の資金に対する均等配分(枠が空いていなければ新規建て拒否)。
+
+    戻り値: (max_dd, executed_positions, cagr)。max_ddは負の値(例: -0.128 = -12.8%)。
+    executed_positionsはsub内で実際に枠が空いて約定した行の0始まり位置のlist
+    (2026-09-19追加、ユーザー指摘「同時保有制約後の同じ約定集合でPF・勝率・MaxDDを
+    計算」——枠が無くて約定しなかったトレードもPF/win_rateには数えてしまうと、
+    MaxDDだけ現実的な制約を反映し、PF/win_rateは反映しないという矛盾が生じるため、
+    呼び出し側でこの集合を使ってPF/win_rateも計算し直す)。"""
+    if len(sub) == 0:
+        return float("nan"), [], float("nan")
+
+    sub = sub.reset_index(drop=True)
+    entry_dates = pd.to_datetime(sub["entry_date"])
+    exit_dates = pd.to_datetime(sub["exit_date"])
+
+    if close_price_lookup is None:
+        max_dd, executed_positions, equity = _compute_max_drawdown_event_only(
+            sub, max_concurrent
+        )
+    else:
+        tickers_involved = sub["ticker"].unique()
+        cal_start, cal_end = entry_dates.min(), exit_dates.max()
+        master_calendar = sorted(
+            set().union(
+                *(
+                    s.index
+                    for t, s in close_price_lookup.items()
+                    if t in set(tickers_involved)
+                )
+            )
+        )
+        master_calendar = pd.DatetimeIndex(master_calendar)
+        master_calendar = master_calendar[
+            (master_calendar >= cal_start) & (master_calendar <= cal_end)
+        ]
+
+        close_reindexed = {
+            t: close_price_lookup[t].reindex(master_calendar).ffill()
+            for t in tickers_involved
+            if t in close_price_lookup
+        }
+
+        entry_prices = {}
+        for pos in range(len(sub)):
+            t, ed = sub.at[pos, "ticker"], entry_dates.iloc[pos]
+            series = close_reindexed.get(t)
+            entry_prices[pos] = (
+                series.loc[ed] if series is not None and ed in series.index else None
+            )
+
+        entries_by_date, exits_by_date = {}, {}
+        for pos in range(len(sub)):
+            entries_by_date.setdefault(entry_dates.iloc[pos], []).append(pos)
+            exits_by_date.setdefault(exit_dates.iloc[pos], []).append(pos)
+
+        def _mark_return(pos, day):
+            """posの「day時点」の含み損益率。価格データが引けない場合は0%(旧仕様と同じ
+            扱い)にフォールバックする。"""
+            entry_p = entry_prices.get(pos)
+            if entry_p is None or entry_p == 0:
+                return 0.0
+            t = sub.at[pos, "ticker"]
+            series = close_reindexed.get(t)
+            if series is None or day not in series.index:
+                return 0.0
+            px = series.loc[day]
+            if pd.isna(px):
+                return 0.0
+            return (px - entry_p) / entry_p
+
+        cash = 1.0
+        open_positions = {}  # pos -> entry時点で確定した配分額(ドル)
+        executed_positions = []
+        equity_curve = []
+
+        for day in master_calendar:
+            # 1. 本日exitする建玉を決済(実際の約定損益ret_pctをcashへ確定反映)。
+            for pos in exits_by_date.get(day, []):
+                alloc = open_positions.pop(pos, None)
+                if alloc is not None:
+                    final_ret = sub.at[pos, "ret_pct"]
+                    cash += alloc * (1.0 + final_ret)
+            # 2. 本日entryする建玉(枠が空いていれば、その時点の資金をmax_concurrentで
+            #    均等配分して約定)。同日はexit->entryの順(旧ロジックと同じ規約)。
+            for pos in entries_by_date.get(day, []):
+                if len(open_positions) < max_concurrent:
+                    current_equity = cash + sum(
+                        a * (1.0 + _mark_return(p, day))
+                        for p, a in open_positions.items()
+                    )
+                    alloc = min(current_equity / max_concurrent, cash)
+                    if alloc > 0:
+                        cash -= alloc
+                        open_positions[pos] = alloc
+                        executed_positions.append(pos)
+            # 3. 本日時点の含み損益込み評価額(未決済ポジションをClose価格で時価評価)。
+            total_equity = cash + sum(
+                a * (1.0 + _mark_return(p, day)) for p, a in open_positions.items()
+            )
+            equity_curve.append(total_equity)
+
+        equity = equity_curve[-1] if equity_curve else 1.0
+        peak, max_dd = -float("inf"), 0.0
+        for eq in equity_curve:
+            peak = max(peak, eq)
+            if peak > 0:
+                max_dd = min(max_dd, (eq - peak) / peak)
+
+    elapsed_days = (exit_dates.max() - entry_dates.min()).days
+    if elapsed_days <= 0:
+        cagr = float("nan")
+    elif equity <= 0:
+        cagr = -1.0
+    else:
+        cagr = equity ** (365.25 / elapsed_days) - 1.0
+
+    return max_dd, executed_positions, cagr
 
 
 def compute_concentration(sub):
@@ -233,7 +363,8 @@ def monthly_breakdown(sub, label, verbose=True):
 
 
 def _evaluate_from_selection(
-    sub_selected, label, print_detail, min_reliable_n, max_concurrent
+    sub_selected, label, print_detail, min_reliable_n, max_concurrent,
+    close_price_lookup=None,
 ):
     """evaluate()とevaluate_daily_topn()の共通後半処理(2026-09-19追加、日次Top-N評価を
     足す際に重複を避けるため抽出)。sub_selectedは呼び出し側が既に選抜済み(全期間
@@ -272,8 +403,8 @@ def _evaluate_from_selection(
             few_trades_flag=True,
         )
 
-    max_dd, executed_positions = compute_max_drawdown(
-        sub_selected, max_concurrent=max_concurrent
+    max_dd, executed_positions, _ = compute_max_drawdown(
+        sub_selected, max_concurrent=max_concurrent, close_price_lookup=close_price_lookup
     )
     sub = (
         sub_selected.iloc[executed_positions]
@@ -346,6 +477,7 @@ def evaluate(
     min_reliable_n=MIN_RELIABLE_N,
     common_sample_k=COMMON_SAMPLE_K,
     max_concurrent=MAX_CONCURRENT_POSITIONS,
+    close_price_lookup=None,
 ):
     """標準指標(n・勝率・PF・平均リターン)に加え、top_k_pf・MaxDD・月別一貫性・
     少数トレードへの偏り・銘柄集中度までまとめて算出する(2026-09-19追加、ユーザー要望の
@@ -373,7 +505,8 @@ def evaluate(
         else d_all.iloc[0:0]
     )
     return _evaluate_from_selection(
-        sub_selected, label, print_detail, min_reliable_n, max_concurrent
+        sub_selected, label, print_detail, min_reliable_n, max_concurrent,
+        close_price_lookup=close_price_lookup,
     )
 
 
@@ -384,6 +517,7 @@ def evaluate_daily_topn(
     print_detail=True,
     min_reliable_n=MIN_RELIABLE_N,
     max_concurrent=MAX_CONCURRENT_POSITIONS,
+    close_price_lookup=None,
 ):
     """日次Top-N運用評価(2026-09-19追加、ユーザー指摘「全期間Top-Kに加えて日次Top-Nを
     主運用評価として追加」)。evaluate()の「全期間score上位K件」は、シグナルが特定の
@@ -406,7 +540,8 @@ def evaluate_daily_topn(
             .head(n_per_day)
         )
     return _evaluate_from_selection(
-        sub_selected, label, print_detail, min_reliable_n, max_concurrent
+        sub_selected, label, print_detail, min_reliable_n, max_concurrent,
+        close_price_lookup=close_price_lookup,
     )
 
 
@@ -415,53 +550,21 @@ def evaluate_daily_topn(
 # ============================================================================
 
 
-def calc_cagr(selected, max_concurrent=MAX_CONCURRENT_POSITIONS):
-    """
-    各取引へ総資金の1/max_concurrentを配分し、
-    exit_dateに損益を反映する簡易ポートフォリオCAGR。
-
-    selectedに必要な列:
-        date, entry_date, exit_date, ret_pct
-    """
-    if selected.empty:
-        return np.nan
-
-    work = selected.copy()
-    work["entry_date"] = pd.to_datetime(work["entry_date"])
-    work["exit_date"] = pd.to_datetime(work["exit_date"])
-
-    start_date = work["entry_date"].min()
-    end_date = work["exit_date"].max()
-    elapsed_days = (end_date - start_date).days
-
-    if elapsed_days <= 0:
-        return np.nan
-
-    # 1取引あたり総資金の1/max_concurrentを配分
-    work["portfolio_pnl"] = work["ret_pct"] / float(max_concurrent)
-
-    # 決済日単位でポートフォリオ損益を集約
-    daily_return = work.groupby("exit_date")["portfolio_pnl"].sum().sort_index()
-
-    # 決済日に確定損益を複利反映
-    ending_equity = (1.0 + daily_return).prod()
-
-    if ending_equity <= 0:
-        return -1.0
-
-    return ending_equity ** (365.25 / elapsed_days) - 1.0
-
-
 def evaluate_topn_curve(
     df,
     topn_list=(1, 3, 5, 10, 20, 30),
     max_per_sector=None,
     max_per_cluster=None,
+    close_price_lookup=None,
 ):
     """max_per_clusterを指定すると業種制約の代わりに60日リターン相関ベースのクラスタ制約
     (select_topn_with_cluster_limit)を使う。max_per_sector/max_per_clusterの同時指定は
     想定していない(クラスタ優先)——業種版とクラスタ版を同じtopn_listで別々に呼び出し、
-    結果を比較する使い方を想定。"""
+    結果を比較する使い方を想定。
+
+    close_price_lookup({ticker: Closeのpd.Series})を渡すとmax_dd/cagrが日次時価評価
+    (compute_max_drawdown参照)になる。Noneの場合はexit時のみ資金曲線を更新する
+    フォールバック(含み損益を無視、旧仕様)になる。"""
     rows = []
 
     for top_n in topn_list:
@@ -515,9 +618,16 @@ def evaluate_topn_curve(
 
         monthly_pf = selected.groupby("month")["ret_pct"].apply(calc_pf)
 
-        cagr = calc_cagr(
-            selected,
-            max_concurrent=MAX_CONCURRENT_POSITIONS,
+        # max_dd/cagrは同時保有max_concurrent件で頭打ちする資金曲線シミュレーション
+        # (compute_max_drawdown、_evaluate_from_selectionと同じロジック)から算出する。
+        # trades/pf/avg_ret/月別統計は従来通りtop_n選抜そのもの(同時保有枠を無視した
+        # 「純粋なランキング品質」)なので、max_dd/cagrだけ実行制約込みの値になる点に注意
+        # (2026-09-23追加、ユーザー指摘「CAGRが実運用に近いか」——旧calc_cagr()は
+        # 同時保有件数の頭打ちが無く、top_nが大きいと実現不可能なレバレッジを暗黙に
+        # 許容してCAGRを過大評価していた)。
+        max_dd, _, cagr = compute_max_drawdown(
+            selected, max_concurrent=MAX_CONCURRENT_POSITIONS,
+            close_price_lookup=close_price_lookup,
         )
 
         rows.append(
@@ -529,6 +639,7 @@ def evaluate_topn_curve(
                 "pf": calc_pf(selected["ret_pct"]),
                 "avg_ret": selected["ret_pct"].mean(),
                 "cagr": cagr,
+                "max_dd": max_dd,
                 "worst_month_pf": monthly_pf.min(),
                 "median_month_pf": monthly_pf.median(),
                 "pf_lt_05_months": int((monthly_pf < 0.5).sum()),

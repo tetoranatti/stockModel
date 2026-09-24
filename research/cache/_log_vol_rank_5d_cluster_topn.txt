@@ -1,0 +1,187 @@
+[*] テスト側 株11個 + マクロ5個 = 計16個
+    既存から外した: (なし)
+    新規追加した候補: ['vol_rank_5d']
+[*] モデル設定: arch=dual_stream, hidden_dim=20, num_heads=1, use_cross_ffn=True, use_final_norm=False, num_self_attn_layers=1, train_batch_size=512, seeds=[42, 43, 44, 45, 46]
+
+[cache] 特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_full_feature_pool.pkl)
+[cache] マージン特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_margin_pool.pkl)
+[cache] セクター相対特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_sector_relative_pool.pkl)
+[cache] マクロ特徴量プールキャッシュを読み込みました (F:\stockModel\research\cache\_cache_full_macro_pool.pkl)
+[00:00:00] [*] データセット・バックテストプール構築(シード非依存、1回だけ)...
+[00:00:00] [*] 共通split date(base/test): 2025-12-18
+[00:00:14] [+] train0=69360 val0=26821 / train1=69360 val1=26821
+[00:00:14] [+] backtest_pool base=26821 test=26821
+[00:00:14] [*] baselineキャッシュ命中(fingerprint=c2bfd184146ac413): seed=[42, 43, 44, 45, 46] は学習をスキップします
+[00:00:14] [+] worker共有データをmemmap化しました: C:\Users\tetor\AppData\Local\Temp\stage3_main_parallel_jwvpvatm\shared_arrays
+[00:00:14] [*] base×0seed(新規)+ test×5seed = 5ジョブを並列学習します(最大10並列)...
+[worker test seed=42] memmap load: train=47.1MB val=18.2MB
+[worker test seed=43] memmap load: train=47.1MB val=18.2MB
+[00:00:00]   [parallel_sweep(test,seed=42)] cross-sectional連続バッチ: train=469 val=179
+[00:00:00]   [parallel_sweep(test,seed=43)] cross-sectional連続バッチ: train=469 val=179
+[worker test seed=44] memmap load: train=47.1MB val=18.2MB
+[00:00:00]   [parallel_sweep(test,seed=44)] cross-sectional連続バッチ: train=469 val=179
+[worker test seed=45] memmap load: train=47.1MB val=18.2MB
+[00:00:00]   [parallel_sweep(test,seed=45)] cross-sectional連続バッチ: train=469 val=179
+[worker test seed=46] memmap load: train=47.1MB val=18.2MB
+[00:00:00]   [parallel_sweep(test,seed=46)] cross-sectional連続バッチ: train=469 val=179
+[00:00:15]   [parallel_sweep(test,seed=42)] epoch  1/30: train_loss=0.6942 val_loss=0.6935 <- best
+[00:00:15]   [parallel_sweep(test,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6932 <- best
+[00:00:15]   [parallel_sweep(test,seed=44)] epoch  1/30: train_loss=0.6936 val_loss=0.6930 <- best
+[00:00:15]   [parallel_sweep(test,seed=45)] epoch  1/30: train_loss=0.6935 val_loss=0.6931 <- best
+[00:00:15]   [parallel_sweep(test,seed=46)] epoch  1/30: train_loss=0.6934 val_loss=0.6924 <- best
+[00:00:27]   [parallel_sweep(test,seed=42)] epoch  2/30: train_loss=0.6931 val_loss=0.6932 <- best
+[00:00:27]   [parallel_sweep(test,seed=43)] epoch  2/30: train_loss=0.6927 val_loss=0.6930 <- best
+[00:00:27]   [parallel_sweep(test,seed=44)] epoch  2/30: train_loss=0.6926 val_loss=0.6930 <- best
+[00:00:27]   [parallel_sweep(test,seed=45)] epoch  2/30: train_loss=0.6925 val_loss=0.6929 <- best
+[00:00:27]   [parallel_sweep(test,seed=46)] epoch  2/30: train_loss=0.6924 val_loss=0.6923 <- best
+[00:00:40]   [parallel_sweep(test,seed=42)] epoch  3/30: train_loss=0.6927 val_loss=0.6929 <- best
+[00:00:40]   [parallel_sweep(test,seed=45)] epoch  3/30: train_loss=0.6924 val_loss=0.6928 <- best
+[00:00:40]   [parallel_sweep(test,seed=46)] epoch  3/30: train_loss=0.6923 val_loss=0.6922 <- best
+[00:00:52]   [parallel_sweep(test,seed=42)] epoch  4/30: train_loss=0.6926 val_loss=0.6928 <- best
+[00:00:52]   [parallel_sweep(test,seed=44)] epoch  4/30: train_loss=0.6919 val_loss=0.6927 <- best
+[00:01:04]   [parallel_sweep(test,seed=42)] epoch  5/30: train_loss=0.6922 val_loss=0.6928 <- best
+[00:01:04]   [parallel_sweep(test,seed=44)] epoch  5/30: train_loss=0.6915 val_loss=0.6933 (patience 1/7)
+[00:01:04]   [parallel_sweep(test,seed=43)] epoch  5/30: train_loss=0.6913 val_loss=0.6944 (patience 3/7)
+[00:01:04]   [parallel_sweep(test,seed=45)] epoch  5/30: train_loss=0.6917 val_loss=0.6929 (patience 2/7)
+[00:01:04]   [parallel_sweep(test,seed=46)] epoch  5/30: train_loss=0.6916 val_loss=0.6924 (patience 2/7)
+[00:01:53]   [parallel_sweep(test,seed=43)] epoch  9/30: train_loss=0.6902 val_loss=0.6946 (patience 7/7)
+[00:01:53] [+] [parallel_sweep(test,seed=43) seed=43] 学習完了 best_val_loss=0.6930
+[worker test seed=43] train_model elapsed=113.8s
+[00:02:03]   [parallel_sweep(test,seed=42)] epoch 10/30: train_loss=0.6908 val_loss=0.6936 (patience 5/7)
+[00:02:03]   [parallel_sweep(test,seed=45)] epoch 10/30: train_loss=0.6901 val_loss=0.6937 (patience 7/7)
+[00:02:03] [+] [parallel_sweep(test,seed=45) seed=45] 学習完了 best_val_loss=0.6928
+[worker test seed=45] train_model elapsed=123.5s
+[00:02:03]   [parallel_sweep(test,seed=44)] epoch 10/30: train_loss=0.6902 val_loss=0.6931 (patience 6/7)
+[00:02:03]   [parallel_sweep(test,seed=46)] epoch 10/30: train_loss=0.6904 val_loss=0.6929 (patience 7/7)
+[00:02:03] [+] [parallel_sweep(test,seed=46) seed=46] 学習完了 best_val_loss=0.6922
+[worker test seed=46] train_model elapsed=123.6s
+[00:02:10]   [parallel_sweep(test,seed=44)] epoch 11/30: train_loss=0.6900 val_loss=0.6936 (patience 7/7)
+[00:02:10] [+] [parallel_sweep(test,seed=44) seed=44] 学習完了 best_val_loss=0.6927
+[worker test seed=44] train_model elapsed=131.0s
+[00:02:18]   [parallel_sweep(test,seed=42)] epoch 12/30: train_loss=0.6902 val_loss=0.6942 (patience 7/7)
+[00:02:18] [+] [parallel_sweep(test,seed=42) seed=42] 学習完了 best_val_loss=0.6928
+[worker test seed=42] train_model elapsed=138.0s
+[00:02:37] [+] 全5ジョブ学習完了: 実時間=142.8秒
+[00:02:37] === seed=42(モデル読み込み) ===
+[00:02:37] === seed=43(モデル読み込み) ===
+[00:02:37] === seed=44(モデル読み込み) ===
+[00:02:37] === seed=45(モデル読み込み) ===
+[00:02:37] === seed=46(モデル読み込み) ===
+
+==========================================================================================
+【TOPN別PF分析(base vs test)】
+==========================================================================================
+  -- ベースライン --
+ top_n  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1     179 1.770944 0.025250 0.325608 -0.232930        0.322230         2.128439                1
+     3     537 1.819639 0.022901 0.749569 -0.354993        0.564737         2.198899                0
+     5     895 1.681037 0.018758 0.885074 -0.459642        0.575453         2.045628                0
+    10    1790 1.737343 0.018322 1.689262 -0.428494        0.649521         2.061461                0
+    20    3580 1.675194 0.014790 1.578035 -0.392692        0.610168         2.070333                0
+    30    5370 1.612717 0.012473 1.503720 -0.377318        0.698377         1.821021                0
+  -- テスト構成 --
+ top_n  trades       pf   avg_ret      cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1     179 0.932517 -0.002493 -0.004392 -0.112287        0.492390         1.054338                1
+     3     537 1.298957  0.009306  0.281471 -0.309151        0.723984         1.778515                0
+     5     895 1.590774  0.016794  0.778980 -0.423042        0.626439         2.090867                0
+    10    1790 1.636860  0.016037  1.206399 -0.432299        0.681560         2.101591                0
+    20    3580 1.587986  0.012826  1.224303 -0.378842        0.637274         1.887385                0
+    30    5370 1.557588  0.011155  1.205187 -0.355091        0.633221         1.772023                0
+  -- 差分(pf_test - pf_base) --
+ top_n  pf_base  pf_test   pf_diff
+     1 1.770944 0.932517 -0.838427
+     3 1.819639 1.298957 -0.520682
+     5 1.681037 1.590774 -0.090263
+    10 1.737343 1.636860 -0.100482
+    20 1.675194 1.587986 -0.087208
+    30 1.612717 1.557588 -0.055129
+
+==========================================================================================
+【TOPN別PF分析(クラスタ制約 max_per_cluster=2, N_CLUSTERS=10) base vs test】
+==========================================================================================
+  -- ベースライン --
+ top_n  trades       pf  avg_ret     cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1     179 1.770944 0.025250 0.325608 -0.232930        0.322230         2.128439                1
+     3     537 1.784176 0.021384 0.589679 -0.349483        0.628276         2.204119                0
+     5     895 1.810690 0.020329 0.834917 -0.420953        0.633034         2.541028                0
+    10    1790 1.751405 0.016722 1.010990 -0.385273        0.810642         2.276375                0
+    20    2506 1.740967 0.014752 1.037415 -0.347929        0.882483         2.035306                0
+    30    2506 1.740967 0.014752 1.037415 -0.347929        0.882483         2.035306                0
+  -- テスト構成 --
+ top_n  trades       pf   avg_ret      cagr    max_dd  worst_month_pf  median_month_pf  pf_lt_05_months
+     1     179 0.932517 -0.002493 -0.004392 -0.112287        0.492390         1.054338                1
+     3     537 1.388931  0.011833  0.259880 -0.301789        0.731077         1.959592                0
+     5     895 1.601770  0.016637  0.489255 -0.406745        0.815491         1.750936                0
+    10    1790 1.656851  0.015218  0.669717 -0.335685        0.686317         2.277769                0
+    20    2506 1.613499  0.012803  0.695423 -0.278282        0.726772         1.955638                0
+    30    2506 1.613499  0.012803  0.695423 -0.278282        0.726772         1.955638                0
+  -- 差分(pf_test - pf_base) --
+ top_n  pf_base  pf_test   pf_diff
+     1 1.770944 0.932517 -0.838427
+     3 1.784176 1.388931 -0.395245
+     5 1.810690 1.601770 -0.208921
+    10 1.751405 1.656851 -0.094555
+    20 1.740967 1.613499 -0.127468
+    30 1.740967 1.613499 -0.127468
+
+==========================================================================================
+【月別 × TopN PF】
+==========================================================================================
+  -- ベースライン --
+             top_1     top_3     top_5    top_10    top_20    top_30   mean_pf    min_pf
+month                                                                                   
+2026-07   0.322230  0.564737  0.562210  0.603765  0.672847  0.750314  0.579351  0.322230
+2026-03   1.913529  1.136210  0.889781  0.628795  0.550650  0.655127  0.962349  0.550650
+2026-06   1.456110  1.447688  1.398697  1.403048  1.400159  1.472945  1.429774  1.398697
+2026-09   0.984742  1.781831  2.344918  1.511861  1.725871  1.554592  1.650636  0.984742
+2026-08   4.091958  2.475590  1.876224  1.880585  1.695710  1.607008  2.271179  1.607008
+2026-01   2.392014  2.363900  2.248284  2.311509  2.380187  2.483632  2.363254  2.248284
+2026-05   2.343349  3.264721  2.629174  2.755610  2.600286  2.306939  2.650013  2.306939
+2026-02   1.255089  2.033898  2.410243  3.659100  4.035271  3.339153  2.788792  1.255089
+2026-04   7.611181  4.877771  3.349560  3.236627  2.347717  2.056995  3.913309  2.056995
+2025-12  21.430757  4.380927  5.495483  5.590517  6.702861  6.409452  8.334999  4.380927
+  -- テスト構成 --
+            top_1     top_3     top_5    top_10    top_20    top_30   mean_pf    min_pf
+month                                                                                  
+2026-03  0.628972  0.807082  0.852958  0.697398  0.642023  0.660052  0.714748  0.628972
+2026-07  0.537174  0.723984  0.848336  0.745445  0.757750  0.746233  0.726487  0.537174
+2026-06  0.617808  0.765045  1.237425  1.571974  1.555387  1.459492  1.201188  0.617808
+2026-08  0.819775  1.093800  1.329989  1.362830  1.666918  1.723686  1.332833  0.819775
+2026-01  0.492390  2.063244  1.948391  1.996408  1.938656  2.185601  1.770782  0.492390
+2026-09  1.977313  2.382236  2.096766  2.434042  1.783718  1.574176  2.041375  1.574176
+2026-05  1.963989  2.258571  2.309211  2.320412  2.889043  2.405858  2.357847  1.963989
+2026-02  1.288902  1.493787  2.623975  3.590205  3.455320  3.175235  2.604571  1.288902
+2026-04  3.026771  3.778043  3.589261  3.303649  2.399796  1.885063  2.997097  1.885063
+2025-12  2.494894  3.355611  4.258499  6.443934  7.631364  6.069883  5.042364  2.494894
+[00:03:12] [*] base/testの(ticker,date)集合: base=26821 test=26821 common=26821 (baseのみ=0件, testのみ=0件)
+==========================================================================================
+【base/test共通(ticker,date)サブセットでの比較(アンサンブル、共通n=26821件)】
+==========================================================================================
+
+  [月別内訳: ベースライン(共通サブセット)]
+    2026-01: n=  25 win_rate= 64.0% PF= 3.32
+    2026-02: n=  42 win_rate= 45.2% PF= 1.88
+    2026-03: n=  23 win_rate= 26.1% PF= 0.66
+    2026-04: n=  19 win_rate= 78.9% PF= 5.50
+    2026-05: n=  12 win_rate= 50.0% PF= 3.32
+    2026-06: n=  52 win_rate= 40.4% PF= 1.18
+    2026-07: n=  27 win_rate= 11.1% PF= 0.12
+    -> 月別一貫性: 5/7ヶ月でPF>1 (71%)
+  ベースライン(共通サブセット): n=  200(約定、候補200件中) win_rate= 43.0% PF= 1.25 avg_ret=+0.0100 MaxDD=-24.3%
+    top_k_pf(同時保有制約無視、候補200件)=1.25 | 銘柄集中: 上位1銘柄22.0% 上位5銘柄69.0% HHI=0.124
+
+  [月別内訳: テスト構成(共通サブセット)]
+    2026-01: n=  26 win_rate= 50.0% PF= 2.01
+    2026-02: n=  36 win_rate= 58.3% PF= 2.95
+    2026-03: n=  27 win_rate= 51.9% PF= 1.45
+    2026-04: n=  27 win_rate= 70.4% PF= 4.33
+    2026-05: n=  35 win_rate= 60.0% PF= 2.63
+    2026-06: n=  40 win_rate= 40.0% PF= 1.12
+    2026-07: n=   9 win_rate= 22.2% PF= 0.36
+    -> 月別一貫性: 6/7ヶ月でPF>1 (86%)
+  テスト構成(共通サブセット): n=  200(約定、候補200件中) win_rate= 53.0% PF= 1.82 avg_ret=+0.0259 MaxDD= -7.0%
+    top_k_pf(同時保有制約無視、候補200件)=1.82 | 銘柄集中: 上位1銘柄16.0% 上位5銘柄68.5% HHI=0.115
+
+  [判定・共通サブセット] baseline PF=1.25 vs テスト構成 PF=1.82 -> テスト構成の方が良い(特徴量差によるdropnaパターンの違いを排除した、最も公平な比較)
+
+==========================================================================================

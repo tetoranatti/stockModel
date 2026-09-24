@@ -1,0 +1,129 @@
+[*] ユニバース: 150銘柄 (F:\stockModel\universe_150_tickers.txt)
+[cache] 特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_full_feature_pool.pkl)
+[cache] マージン特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_margin_pool.pkl)
+[cache] セクター相対特徴量プールキャッシュを読み込みました: 150銘柄 (F:\stockModel\research\cache\_cache_sector_relative_pool.pkl)
+[cache] マクロ特徴量プールキャッシュを読み込みました (F:\stockModel\research\cache\_cache_full_macro_pool.pkl)
+[*] split_75(train/val境界)=2025-12-17  split_875(val/ブラインド境界)=2026-05-11
+[+] 手法A: train=69210 val=26821 backtest_pool=26821
+[+] 手法B: train=69210 val=13050 backtest_pool=13021
+[*] A×5seed + B×5seed = 10ジョブを最大10並列で学習します...
+[worker A seed=42] memmap load: train=44.4MB val=17.2MB
+[00:00:00]   [parallel_sweep(A,seed=42)] cross-sectional連続バッチ: train=468 val=179
+[worker A seed=43] memmap load: train=44.4MB val=17.2MB
+[00:00:00]   [parallel_sweep(A,seed=43)] cross-sectional連続バッチ: train=468 val=179
+[worker A seed=44] memmap load: train=44.4MB val=17.2MB
+[00:00:00]   [parallel_sweep(A,seed=44)] cross-sectional連続バッチ: train=468 val=179
+[worker A seed=45] memmap load: train=44.4MB val=17.2MB
+[00:00:00]   [parallel_sweep(A,seed=45)] cross-sectional連続バッチ: train=468 val=179
+[worker A seed=46] memmap load: train=44.4MB val=17.2MB
+[00:00:00]   [parallel_sweep(A,seed=46)] cross-sectional連続バッチ: train=468 val=179
+[worker B seed=42] memmap load: train=44.4MB val=8.4MB
+[worker B seed=43] memmap load: train=44.4MB val=8.4MB
+[worker B seed=44] memmap load: train=44.4MB val=8.4MB
+[00:00:00]   [parallel_sweep(B,seed=42)] cross-sectional連続バッチ: train=468 val=87
+[00:00:00]   [parallel_sweep(B,seed=43)] cross-sectional連続バッチ: train=468 val=87
+[00:00:00]   [parallel_sweep(B,seed=44)] cross-sectional連続バッチ: train=468 val=87
+[worker B seed=45] memmap load: train=44.4MB val=8.4MB
+[worker B seed=46] memmap load: train=44.4MB val=8.4MB
+[00:00:00]   [parallel_sweep(B,seed=45)] cross-sectional連続バッチ: train=468 val=87
+[00:00:00]   [parallel_sweep(B,seed=46)] cross-sectional連続バッチ: train=468 val=87
+[00:00:26]   [parallel_sweep(A,seed=42)] epoch  1/30: train_loss=0.6936 val_loss=0.6931 <- best
+[00:00:26]   [parallel_sweep(A,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6929 <- best
+[00:00:27]   [parallel_sweep(A,seed=44)] epoch  1/30: train_loss=0.6936 val_loss=0.6935 <- best
+[00:00:27]   [parallel_sweep(B,seed=42)] epoch  1/30: train_loss=0.6936 val_loss=0.6929 <- best
+[00:00:28]   [parallel_sweep(A,seed=45)] epoch  1/30: train_loss=0.6943 val_loss=0.6931 <- best
+[00:00:28]   [parallel_sweep(B,seed=44)] epoch  1/30: train_loss=0.6936 val_loss=0.6924 <- best
+[00:00:28]   [parallel_sweep(B,seed=43)] epoch  1/30: train_loss=0.6939 val_loss=0.6921 <- best
+[00:00:28]   [parallel_sweep(B,seed=45)] epoch  1/30: train_loss=0.6943 val_loss=0.6926 <- best
+[00:00:29]   [parallel_sweep(A,seed=46)] epoch  1/30: train_loss=0.6935 val_loss=0.6927 <- best
+[00:00:29]   [parallel_sweep(B,seed=46)] epoch  1/30: train_loss=0.6935 val_loss=0.6920 <- best
+[00:00:51]   [parallel_sweep(A,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6928 <- best
+[00:00:51]   [parallel_sweep(B,seed=42)] epoch  2/30: train_loss=0.6927 val_loss=0.6924 <- best
+[00:00:52]   [parallel_sweep(A,seed=44)] epoch  2/30: train_loss=0.6928 val_loss=0.6933 <- best
+[00:00:51]   [parallel_sweep(B,seed=44)] epoch  2/30: train_loss=0.6928 val_loss=0.6922 <- best
+[00:00:52]   [parallel_sweep(A,seed=45)] epoch  2/30: train_loss=0.6930 val_loss=0.6928 <- best
+[00:00:52]   [parallel_sweep(B,seed=43)] epoch  2/30: train_loss=0.6931 val_loss=0.6917 <- best
+[00:00:53]   [parallel_sweep(B,seed=46)] epoch  2/30: train_loss=0.6927 val_loss=0.6916 <- best
+[00:00:54]   [parallel_sweep(A,seed=46)] epoch  2/30: train_loss=0.6927 val_loss=0.6925 <- best
+[00:01:14]   [parallel_sweep(B,seed=42)] epoch  3/30: train_loss=0.6925 val_loss=0.6923 <- best
+[00:01:16]   [parallel_sweep(B,seed=43)] epoch  3/30: train_loss=0.6924 val_loss=0.6916 <- best
+[00:01:16]   [parallel_sweep(B,seed=45)] epoch  3/30: train_loss=0.6926 val_loss=0.6925 <- best
+[00:01:16]   [parallel_sweep(B,seed=46)] epoch  3/30: train_loss=0.6925 val_loss=0.6914 <- best
+[00:01:18]   [parallel_sweep(A,seed=45)] epoch  3/30: train_loss=0.6926 val_loss=0.6925 <- best
+[00:01:43]   [parallel_sweep(A,seed=45)] epoch  4/30: train_loss=0.6922 val_loss=0.6925 <- best
+[00:02:02]   [parallel_sweep(B,seed=42)] epoch  5/30: train_loss=0.6918 val_loss=0.6924 (patience 2/7)
+[00:02:02]   [parallel_sweep(B,seed=44)] epoch  5/30: train_loss=0.6915 val_loss=0.6926 (patience 3/7)
+[00:02:03]   [parallel_sweep(B,seed=43)] epoch  5/30: train_loss=0.6918 val_loss=0.6914 <- best
+[00:02:03]   [parallel_sweep(B,seed=46)] epoch  5/30: train_loss=0.6922 val_loss=0.6920 (patience 2/7)
+[00:02:04]   [parallel_sweep(B,seed=45)] epoch  5/30: train_loss=0.6919 val_loss=0.6920 <- best
+[00:02:07]   [parallel_sweep(A,seed=42)] epoch  5/30: train_loss=0.6918 val_loss=0.6937 (patience 4/7)
+[00:02:07]   [parallel_sweep(A,seed=43)] epoch  5/30: train_loss=0.6918 val_loss=0.6931 (patience 3/7)
+[00:02:07]   [parallel_sweep(A,seed=44)] epoch  5/30: train_loss=0.6915 val_loss=0.6936 (patience 3/7)
+[00:02:08]   [parallel_sweep(A,seed=45)] epoch  5/30: train_loss=0.6919 val_loss=0.6926 (patience 1/7)
+[00:02:09]   [parallel_sweep(A,seed=46)] epoch  5/30: train_loss=0.6922 val_loss=0.6928 (patience 3/7)
+[00:02:26]   [parallel_sweep(B,seed=44)] epoch  6/30: train_loss=0.6913 val_loss=0.6919 <- best
+[00:02:27]   [parallel_sweep(B,seed=43)] epoch  6/30: train_loss=0.6916 val_loss=0.6912 <- best
+[00:02:32]   [parallel_sweep(A,seed=43)] epoch  6/30: train_loss=0.6916 val_loss=0.6927 <- best
+[00:02:57]   [parallel_sweep(A,seed=44)] epoch  7/30: train_loss=0.6909 val_loss=0.6931 <- best
+[00:02:58]   [parallel_sweep(A,seed=45)] epoch  7/30: train_loss=0.6914 val_loss=0.6924 <- best
+[00:03:14]   [parallel_sweep(B,seed=44)] epoch  8/30: train_loss=0.6906 val_loss=0.6910 <- best
+[00:03:22]   [parallel_sweep(A,seed=42)] epoch  8/30: train_loss=0.6909 val_loss=0.6937 (patience 7/7)
+[00:03:22] [+] [parallel_sweep(A,seed=42) seed=42] 学習完了 best_val_loss=0.6931
+[worker A seed=42] train_model elapsed=202.7s
+[00:03:46]   [parallel_sweep(A,seed=46)] epoch  9/30: train_loss=0.6910 val_loss=0.6935 (patience 7/7)
+[00:03:46] [+] [parallel_sweep(A,seed=46) seed=46] 学習完了 best_val_loss=0.6925
+[worker A seed=46] train_model elapsed=226.7s
+[00:03:54]   [parallel_sweep(B,seed=42)] epoch 10/30: train_loss=0.6905 val_loss=0.6944 (patience 7/7)
+[00:03:55] [+] [parallel_sweep(B,seed=42) seed=42] 学習完了 best_val_loss=0.6923
+[worker B seed=42] train_model elapsed=234.8s
+[00:03:55]   [parallel_sweep(B,seed=44)] epoch 10/30: train_loss=0.6900 val_loss=0.6917 (patience 2/7)
+[00:03:56]   [parallel_sweep(B,seed=43)] epoch 10/30: train_loss=0.6906 val_loss=0.6915 (patience 4/7)
+[00:03:56]   [parallel_sweep(B,seed=46)] epoch 10/30: train_loss=0.6908 val_loss=0.6927 (patience 7/7)
+[00:03:56] [+] [parallel_sweep(B,seed=46) seed=46] 学習完了 best_val_loss=0.6914
+[worker B seed=46] train_model elapsed=236.7s
+[00:03:57]   [parallel_sweep(B,seed=45)] epoch 10/30: train_loss=0.6907 val_loss=0.6930 (patience 5/7)
+[00:04:03]   [parallel_sweep(A,seed=43)] epoch 10/30: train_loss=0.6906 val_loss=0.6929 (patience 4/7)
+[00:04:03]   [parallel_sweep(A,seed=44)] epoch 10/30: train_loss=0.6900 val_loss=0.6931 (patience 3/7)
+[00:04:03]   [parallel_sweep(A,seed=45)] epoch 10/30: train_loss=0.6907 val_loss=0.6930 (patience 3/7)
+[00:04:25]   [parallel_sweep(B,seed=45)] epoch 12/30: train_loss=0.6900 val_loss=0.6941 (patience 7/7)
+[00:04:25] [+] [parallel_sweep(B,seed=45) seed=45] 学習完了 best_val_loss=0.6920
+[worker B seed=45] train_model elapsed=265.0s
+[00:04:35]   [parallel_sweep(B,seed=43)] epoch 13/30: train_loss=0.6899 val_loss=0.6918 (patience 7/7)
+[00:04:35] [+] [parallel_sweep(B,seed=43) seed=43] 学習完了 best_val_loss=0.6912
+[worker B seed=43] train_model elapsed=275.5s
+[00:04:42]   [parallel_sweep(A,seed=43)] epoch 13/30: train_loss=0.6899 val_loss=0.6937 (patience 7/7)
+[00:04:42] [+] [parallel_sweep(A,seed=43) seed=43] 学習完了 best_val_loss=0.6927
+[worker A seed=43] train_model elapsed=282.4s
+[00:04:50]   [parallel_sweep(A,seed=44)] epoch 14/30: train_loss=0.6888 val_loss=0.6936 (patience 7/7)
+[00:04:50] [+] [parallel_sweep(A,seed=44) seed=44] 学習完了 best_val_loss=0.6931
+[worker A seed=44] train_model elapsed=290.2s
+[00:04:49]   [parallel_sweep(A,seed=45)] epoch 14/30: train_loss=0.6894 val_loss=0.6942 (patience 7/7)
+[00:04:49] [+] [parallel_sweep(A,seed=45) seed=45] 学習完了 best_val_loss=0.6924
+[worker A seed=45] train_model elapsed=289.9s
+[00:04:50]   [parallel_sweep(B,seed=44)] epoch 15/30: train_loss=0.6887 val_loss=0.6922 (patience 7/7)
+[00:04:50] [+] [parallel_sweep(B,seed=44) seed=44] 学習完了 best_val_loss=0.6910
+[worker B seed=44] train_model elapsed=290.9s
+[+] 全10ジョブ学習完了: 実時間=298.3秒
+
+==========================================================================================
+【比較区間 [2026-05-11, 終端) のTOPN別PF】
+==========================================================================================
+手法A(val=backtest全体からの絞り込み、n(A全体)=26821, n(A絞り込み後)=13021) vs 手法B(val/backtestを分離、n(B)=13021)
+
+--- 業種制約 max_per_sector=3 ---
+ top_n  trades_A     pf_A  trades_B     pf_B  pf_diff(A-B)
+     1        87 1.610374        87 1.602329      0.008045
+     3       261 1.342651       261 1.358819     -0.016169
+     5       435 1.307734       435 1.331257     -0.023523
+    10       870 1.315893       870 1.351199     -0.035306
+    20      1740 1.472144      1740 1.441669      0.030475
+    30      2610 1.434571      2610 1.358862      0.075709
+
+--- クラスタ制約 max_per_cluster=2 ---
+ top_n  trades_A     pf_A  trades_B     pf_B  pf_diff(A-B)
+     1        87 1.610374        87 1.602329      0.008045
+     3       261 1.293033       261 1.417976     -0.124943
+     5       435 1.319455       435 1.392305     -0.072850
+    10       870 1.444539       870 1.384765      0.059775
+    20      1218 1.528987      1218 1.500606      0.028381
+    30      1218 1.528987      1218 1.500606      0.028381
