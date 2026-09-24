@@ -16,15 +16,30 @@ def load_trained_model(weights_path):
     # use_cross_ffn=Falseが既定なので、この鍵を持たない旧チェックポイントも
     # そのまま正しく再構築できる(2026-09-19、FFN本採用に伴い追加)。
     use_cross_ffn = checkpoint.get('use_cross_ffn', False)
+    # num_sectors=0/sector_embed_dim=0が既定(2026-09-24、空売りモデルv2本番化に伴い追加)。
+    # この2つが無い旧チェックポイント(swing_model_v8等)は従来通りセクター埋め込み無しで
+    # 再構築される——stock_dimにはstock_colsの長さをそのまま使う(呼び出し側がw_sの最終列に
+    # sector_idを埋め込んでいる場合はstock_colsにその分を含めて渡すこと)。
+    num_sectors = checkpoint.get('num_sectors', 0)
+    sector_embed_dim = checkpoint.get('sector_embed_dim', 0)
+    # seq_len=10が既定(swing_model_v8等の旧チェックポイントと同じ、この鍵を持たない)。
+    # 空売りモデルv2はresearch/stage3_exp/config.py::SEQ_LEN=5で学習しているため、
+    # DecayPooling(pool.weights)の形状がズレて既定値だとstate_dictロードに失敗する
+    # (2026-09-24追加)。
+    seq_len = checkpoint.get('seq_len', 10)
+    stock_dim = len(stock_cols) + (1 if num_sectors > 0 else 0)
 
     model = DualStream_GRU_PreLN_Transformer(
-        stock_dim=len(stock_cols),
+        stock_dim=stock_dim,
         macro_dim=len(macro_cols),
         hidden_dim=hidden_dim,
         num_heads=num_heads,
         num_classes=3,
         dropout=dropout,
-        use_cross_ffn=use_cross_ffn
+        use_cross_ffn=use_cross_ffn,
+        num_sectors=num_sectors,
+        sector_embed_dim=sector_embed_dim,
+        seq_len=seq_len,
     ).to(DEVICE)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()

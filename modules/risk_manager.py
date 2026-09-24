@@ -92,14 +92,28 @@ def calculate_target_stop_levels(curr_close, curr_atr):
     return target_price, stop_price
 
 
+def calculate_target_stop_levels_short(curr_close, curr_atr):
+    """calculate_target_stop_levels()の空売り版(2026-09-24追加)。ロングとは損益の向きが
+    逆なので、targetはcurr_closeより下(値下がりで利益)、stopはcurr_closeより上
+    (値上がりで損失)になる。ATR倍率(target 2.0倍・stop 1.0倍)はロング側と揃えている
+    (research/short_exp側もロングと同じ固定バリア規約で検証済み、[[short_selling_model_2026-09-24]])。"""
+    target_price = round(curr_close - 2.0 * curr_atr, 1)
+    stop_price = round(curr_close + 1.0 * curr_atr, 1)
+    return target_price, stop_price
+
+
 def calculate_recommended_position(price, stop_price, size_factor,
                                     capital=DEFAULT_CAPITAL, risk_pct=DEFAULT_RISK_PCT,
-                                    leverage=DEFAULT_LEVERAGE, max_position_pct=DEFAULT_MAX_POSITION_PCT):
+                                    leverage=DEFAULT_LEVERAGE, max_position_pct=DEFAULT_MAX_POSITION_PCT,
+                                    side="long"):
     """ui/src/app.js の updatePositionSize() と同じ計算式(リスクベース株数・
     信用余力(資金×レバレッジ倍率)上限株数・1銘柄あたり投資上限株数のうち
     最小のもの、100株単位丸め)で推奨ポジションサイズを算出する。UIを開かず
-    スクリーニング結果だけで発注準備ができるように、CSV/JSON出力に直接含めるためのもの。"""
-    risk_per_share = max(1.0, price - stop_price)
+    スクリーニング結果だけで発注準備ができるように、CSV/JSON出力に直接含めるためのもの。
+
+    side="short"(2026-09-24追加): 空売りはstop_priceがpriceより上にあるため、
+    risk_per_shareの向きを反転する(price - stop_price ではなく stop_price - price)。"""
+    risk_per_share = max(1.0, (stop_price - price) if side == "short" else (price - stop_price))
     max_risk = capital * (risk_pct / 100.0) * size_factor
     risk_based_shares = int(max_risk / (risk_per_share * 100)) * 100
 
@@ -136,7 +150,7 @@ def calculate_recommended_position(price, stop_price, size_factor,
 
 def build_portfolio(candidates, capital=DEFAULT_CAPITAL, risk_pct=DEFAULT_RISK_PCT,
                      leverage=DEFAULT_LEVERAGE, max_positions=20,
-                     max_position_pct=DEFAULT_MAX_POSITION_PCT):
+                     max_position_pct=DEFAULT_MAX_POSITION_PCT, side="long"):
     """複数銘柄をまとめて買う前提で、資金・レバレッジ上限を全銘柄で共有しながら
     優先順位(candidatesに渡された順序)順に配分するポートフォリオを組む。
 
@@ -154,6 +168,9 @@ def build_portfolio(candidates, capital=DEFAULT_CAPITAL, risk_pct=DEFAULT_RISK_P
     MaxDD-21.2%→-16.7%、最終リターン+14.0%→+27.5%と全指標が改善したため導入。
 
     candidates: [{ticker, price, stop_price, size_factor, ...}, ...] (優先順位順)
+    side="short"(2026-09-24追加): 空売り用。risk_per_shareの向きを反転する
+    (calculate_recommended_position()と同じ)。ショート候補のcapitalは呼び出し側で
+    別枠(regime_momentum.determine_capital_split()のcapital_short)を渡すこと。
     戻り値: (portfolio_rows, summary) — portfolio_rowsは採用された銘柄のみ、
     元のdictに recommended_shares/estimated_cost_yen/estimated_max_loss_yen/
     leverage_capped/maxpos_capped を追加したもの。
@@ -173,7 +190,7 @@ def build_portfolio(candidates, capital=DEFAULT_CAPITAL, risk_pct=DEFAULT_RISK_P
         price = float(item['price'])
         stop_price = float(item['stop_price'])
         size_factor = float(item.get('size_factor', 1.0))
-        risk_per_share = max(1.0, price - stop_price)
+        risk_per_share = max(1.0, (stop_price - price) if side == "short" else (price - stop_price))
 
         max_risk = capital * (risk_pct / 100.0) * size_factor
         risk_based_shares = int(max_risk / (risk_per_share * 100)) * 100
@@ -212,6 +229,7 @@ def build_portfolio(candidates, capital=DEFAULT_CAPITAL, risk_pct=DEFAULT_RISK_P
         portfolio_rows.append(row)
 
     summary = {
+        "side": side,
         "capital": capital,
         "leverage": leverage,
         "max_buying_power": max_buying_power,

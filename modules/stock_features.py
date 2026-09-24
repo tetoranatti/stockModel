@@ -50,3 +50,18 @@ def compute_stock_features(df, nk_ret_aligned):
     df['dist_from_low20'] = ((df['Close'] - low20) / (low20 + 1e-7)).fillna(0.0)
 
     return df
+
+
+def compute_short_model_extra_features(df):
+    """空売りモデルv2(SHORT_STOCK_COLS_V2)専用の追加特徴量(2026-09-24追加)。
+    research/_feature_cache_utils.py::get_base_per_ticker_df()のPOOL_STOCK_FEATURE_COLS
+    計算式と同一(gap_strength_5/atr_accel/dist_from_high60の3列のみ、他の候補列は
+    空売りモデルv2では未採用のためここには含めない)。compute_stock_features()呼び出し後
+    (ATR/overnight_gap列が存在する状態)で呼ぶこと。"""
+    df['atr_accel'] = (df['ATR'] / (df['ATR'].shift(5) + 1e-7) - 1.0).fillna(0.0)
+    df['gap_strength_5'] = df['overnight_gap'].rolling(5).mean().fillna(0.0)
+
+    high60 = df['High'].rolling(60).max()
+    df['dist_from_high60'] = ((df['Close'] - high60) / (high60 + 1e-7)).fillna(0.0)
+
+    return df

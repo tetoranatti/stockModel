@@ -28,6 +28,7 @@ from modules.risk_manager import (
     determine_sizing_factor,
     evaluate_screening_gate,
     calculate_target_stop_levels,
+    calculate_target_stop_levels_short,
     calculate_recommended_position,
     build_portfolio,
     DEFAULT_CAPITAL,
@@ -35,6 +36,8 @@ from modules.risk_manager import (
     DEFAULT_LEVERAGE,
     DEFAULT_MAX_POSITION_PCT,
 )
+from modules.regime_momentum import determine_capital_split
+from modules.sector_embedding import TICKER_TO_SECTOR_ID
 from modules.regime_risk_model import (
     add_regime_features,
     compute_breadth_5d,
@@ -52,7 +55,7 @@ from modules.short_edge_model import (
     determine_short_edge_size_mult,
     append_short_edge_cache,
 )
-from modules.stock_features import compute_stock_features
+from modules.stock_features import compute_stock_features, compute_short_model_extra_features
 from modules.cross_sectional_features import (
     apply_log_transform,
     compute_cross_sectional_stats,
@@ -68,8 +71,21 @@ ENSEMBLE_SEEDS = [42, 43, 44, 45, 46]
 MODEL_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"swing_model_v8_ensemble_seed{s}.pt") for s in ENSEMBLE_SEEDS]
 REGIME_RISK_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"regime_risk_model_seed{s}.pt") for s in ENSEMBLE_SEEDS]
 SHORT_EDGE_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"short_edge_noflow_model_seed{s}.pt") for s in ENSEMBLE_SEEDS]
+# ★ 空売りモデルv2(2026-09-24、実運用へ初投入。research/short_exp/train_short_model_v2.py、
+#   9 stock + 5 macro、USE_SECTOR_EMBEDDING=True、SEQ_LEN=5)。SHORT_EDGE_*(翌日TOPIX下落
+#   確率でロングサイズを絞るだけの既存モデル)とは別物——こちらは個別銘柄をランキングして
+#   実際にショートポジションを建てる。scripts/export_short_model_v2_to_production.pyで
+#   research/cache/short_model_cache_v2から本番形式に変換して配置する。
+SHORT_MODEL_WEIGHTS_LIST = [os.path.join(BASE_DIR, f"short_model_v2_seed{s}.pt") for s in ENSEMBLE_SEEDS]
+SHORT_STOCK_COLS_V2 = [
+    'stock_ret_1d', 'stock_ret_20d', 'rolling_beta', 'vol_ratio_5d', 'overnight_gap',
+    'dist_from_low20', 'gap_strength_5', 'atr_accel', 'dist_from_high60',
+]
+SHORT_SEQ_LEN = 5  # ロング(SEQ_LEN=10)とは別(research/stage3_exp/config.py::SEQ_LEN=5に合わせる)
+SHORT_DAILY_TOPN = 5  # walk-forward検証済み設定([[regime_gated_long_short_blend_2026-09-24]])
 VIX_CSV_PATH = os.path.join(BASE_DIR, "data", "vix_fred.csv")
 OUTPUT_CSV = os.path.join(BASE_DIR, "final_regime_screened_v8.csv")
+OUTPUT_CSV_SHORT = os.path.join(BASE_DIR, "final_regime_screened_v8_short.csv")
 OUTPUT_JSON = os.path.join(BASE_DIR, "data", "screening_results_v8.json")
 
 MIN_TURNOVER = 10e8
@@ -98,9 +114,26 @@ def main():
     # modules/model_inference.py 経由で v8 アンサンブルモデルを自動読み込み
     models, stock_cols, macro_cols = load_trained_models_ensemble(MODEL_WEIGHTS_LIST)
     print(f"[*] アンサンブル {len(models)} モデルを読み込みました (seeds={ENSEMBLE_SEEDS})")
+
+    # 空売りモデルv2(見つからなければ実弾ショートはスキップし、ロングのみで継続)
+    missing_short_model = [p for p in SHORT_MODEL_WEIGHTS_LIST if not os.path.exists(p)]
+    short_models = None
+    if missing_short_model:
+        print(f"[!] 空売りモデルv2の重みが見つからないためショートは無効で継続: {missing_short_model}")
+    else:
+        short_models, short_stock_cols, short_macro_cols = load_trained_models_ensemble(SHORT_MODEL_WEIGHTS_LIST)
+        print(f"[*] 空売りアンサンブル {len(short_models)} モデルを読み込みました (seeds={ENSEMBLE_SEEDS})")
+
     macro_df = load_macro_environment()
 
     regime = detect_macro_regime(macro_df)
+
+    # モメンタムレジームゲート(2026-09-24追加、[[regime_gated_long_short_blend_2026-09-24]]で
+    # 5-fold walk-forward検証済み)。ロング/ショートの資金配分をここで決める。
+    capital_split = determine_capital_split(macro_df, DEFAULT_CAPITAL)
+    print(f"[★] モメンタムレジーム: {capital_split['zone']} -> "
+          f"ロング資金{capital_split['capital_long']:,}円(w={capital_split['w_long']:.2f}) / "
+          f"ショート資金{capital_split['capital_short']:,}円(w={capital_split['w_short']:.2f})\n")
 
     margin_cache = load_margin_cache()
     sentiment_map, master_map = load_sector_data()
@@ -155,6 +188,10 @@ def main():
 
             aligned_nk = macro_df['NK_Ret'].reindex(df.index).fillna(0.0)
             df = compute_stock_features(df, aligned_nk)
+            # 空売りモデルv2(SHORT_STOCK_COLS_V2)専用の追加特徴量(gap_strength_5/atr_accel/
+            # dist_from_high60)。ATR/overnight_gap列が必要なためcompute_stock_features()の後で
+            # 呼ぶ(2026-09-24追加)。
+            df = compute_short_model_extra_features(df)
 
             df = df.join(macro_feed, how='left')
             df[macro_cols] = df[macro_cols].ffill()
@@ -244,6 +281,43 @@ def main():
         )
         pred_map = {t: (float(p_win_arr[k]), float(p_stop_arr[k]), float(ev_arr[k]))
                     for k, t in enumerate(batch_tickers)}
+
+    # --- 空売りモデルv2: ロングとは別のstock_cols(SHORT_STOCK_COLS_V2)・別の横断面統計・
+    # 別のSEQ_LEN(5)でバッチ推論する(2026-09-24追加)。sector_idをw_sの最終列に定数値として
+    # 埋め込む(research/stage3_exp/data_builder.py::build_dataset_shortと同じ規約、
+    # DualStream_GRU_PreLN_Transformer.forward()側でこの最終列を切り離してnn.Embeddingに通す)。
+    short_pred_map = {}
+    if short_models is not None:
+        short_cross_mean, short_cross_std = compute_cross_sectional_stats(per_ticker_log, SHORT_STOCK_COLS_V2)
+        short_valid_dates = valid_cross_section_dates(per_ticker_log, SHORT_STOCK_COLS_V2, MIN_CROSS_SECTION)
+
+        short_batch_tickers, short_w_s_list, short_w_m_list = [], [], []
+        for t in per_ticker_df.keys():
+            try:
+                df = per_ticker_df[t]
+                df_log = per_ticker_log[t].loc[per_ticker_log[t].index.isin(short_valid_dates)]
+                if len(df_log) < SHORT_SEQ_LEN:
+                    continue
+                norm_s = normalize_cross_sectional(df_log, short_cross_mean, short_cross_std, SHORT_STOCK_COLS_V2)
+                w_s = norm_s.values[-SHORT_SEQ_LEN:]
+                if np.isnan(w_s).any():
+                    continue
+                sec_id = TICKER_TO_SECTOR_ID.get(t, 0)
+                w_s = np.concatenate([w_s, np.full((SHORT_SEQ_LEN, 1), sec_id, dtype=w_s.dtype)], axis=1)
+                w_m = df.loc[df_log.index, macro_cols].values[-SHORT_SEQ_LEN:]
+                short_batch_tickers.append(t)
+                short_w_s_list.append(w_s)
+                short_w_m_list.append(w_m)
+            except Exception:
+                continue
+
+        if short_batch_tickers:
+            sp_win_arr, sp_stop_arr, sev_arr = predict_probabilities_ensemble_batch(
+                short_models, np.stack(short_w_s_list), np.stack(short_w_m_list)
+            )
+            short_pred_map = {t: (float(sp_win_arr[k]), float(sp_stop_arr[k]), float(sev_arr[k]))
+                               for k, t in enumerate(short_batch_tickers)}
+        print(f"[*] 空売りモデルv2 推論完了: {len(short_pred_map)}銘柄")
 
     for i, t in enumerate(per_ticker_df.keys()):
         try:
@@ -426,9 +500,11 @@ def main():
             n_cached_se = append_short_edge_cache(latest_date, p_short_edge, short_edge_zone_info)
             print(f"[*] 空売り機会スコアを日次キャッシュに追記(累計{n_cached_se}日分)\n")
 
-            if short_edge_zone_info['size_mult'] != 1.0:
-                res_df['size_factor'] = (res_df['size_factor'] * short_edge_zone_info['size_mult']).round(2)
-                res_df['size_reason'] = res_df['size_reason'] + f" ＋ 空売り機会{short_edge_zone_info['zone']}({short_edge_zone_info['size_mult']:.2f}倍)"
+            # 2026-09-24: ロングサイズを絞る効果は無効化した。同じ役割(上昇モメンタム悪化時に
+            # ロングを抑える)を、実際にショートポジションを建てるモメンタムレジームゲート
+            # (determine_capital_split、capital_long/capital_short)に統合したため
+            # ([[regime_gated_long_short_blend_2026-09-24]])。p_short_edgeの算出・キャッシュ
+            # 記録自体は監視用に残す([[feedback_keep_rejected_experiment_code]]の精神)。
         except Exception as e:
             print(f"[!] 空売り機会モデルの推論に失敗したためNEUTRAL固定で継続: {e}")
 
@@ -478,6 +554,7 @@ def main():
                 "zone": short_edge_zone_info['zone'],
                 "size_mult": short_edge_zone_info['size_mult'],
             },
+            "momentum_regime": capital_split,
             "results": res_df.to_dict(orient="records")
         }
         with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
@@ -507,11 +584,18 @@ def main():
     # max_positions=k_final を明示的に渡す(地合い危険度ゾーンによるK調整。渡さないと
     # build_portfolio()の既定値20に黙って再制限され、SAFEゾーンのK=25拡張が
     # 効かなくなるバグがあったため修正)
+    # 資金はDEFAULT_CAPITAL全額ではなく、モメンタムレジームゲートが配分したcapital_longを使う
+    # (2026-09-24追加。HIGH regimeではw_long=1.0でDEFAULT_CAPITALそのまま、LOW regimeでは
+    # w_long=0.0になりロングは建てない——[[regime_gated_long_short_blend_2026-09-24]]で
+    # walk-forward検証済みの強めのゲート)。
     actionable = res_df[res_df['action'].isin(["🔥 STRONG BUY", "🎯 BUY"])].copy()
-    portfolio_rows, portfolio_summary = build_portfolio(actionable.to_dict(orient="records"), max_positions=k_final)
+    portfolio_rows, portfolio_summary = build_portfolio(
+        actionable.to_dict(orient="records"), capital=capital_split['capital_long'], max_positions=k_final,
+    )
 
     print("\n" + "=" * 95)
-    print(f"【ポートフォリオ】(資金{DEFAULT_CAPITAL:,}円・リスク{DEFAULT_RISK_PCT}%・レバレッジ{DEFAULT_LEVERAGE}倍・"
+    print(f"【ロングポートフォリオ】(資金{capital_split['capital_long']:,}円[レジーム{capital_split['zone']} "
+          f"w={capital_split['w_long']:.2f}]・リスク{DEFAULT_RISK_PCT}%・レバレッジ{DEFAULT_LEVERAGE}倍・"
           f"1銘柄上限{DEFAULT_MAX_POSITION_PCT*100:.0f}%・最大{k_final}銘柄[{regime_zone_info['zone']}])")
     print("=" * 95)
     if not portfolio_rows:
@@ -524,7 +608,7 @@ def main():
         print(f"  信用余力使用: {portfolio_summary['used_buying_power_yen']:,}円 / "
               f"{portfolio_summary['max_buying_power']:,.0f}円 ({portfolio_summary['buying_power_usage_pct']:.1f}%)")
         print(f"  想定最大損失合計: {portfolio_summary['total_risk_yen']:,}円 "
-              f"(資金比 {portfolio_summary['total_risk_yen']/DEFAULT_CAPITAL*100:.2f}%)")
+              f"(資金比 {portfolio_summary['total_risk_yen']/max(1, capital_split['capital_long'])*100:.2f}%)")
         src = portfolio_summary.get('skip_reason_counts', {})
         skip_parts = []
         if src.get('risk'): skip_parts.append(f"損切幅超過{src['risk']}件")
@@ -546,6 +630,65 @@ def main():
         print(f"[+] ポートフォリオ保存完了: {portfolio_path}")
     except Exception as e:
         print(f"[!] ポートフォリオ保存スキップ: {e}")
+
+    # --- 空売りポートフォリオ構築(2026-09-24追加) ---
+    # ロングと違い「勝率閾値によるゲート」は行わず、short_pred_mapのev_score降順で
+    # 日次Top-N(SHORT_DAILY_TOPN)を選ぶ(research/short_exp側で検証済みの運用方式、
+    # evaluate_daily_topnと同じ規約)。
+    short_portfolio_rows, short_portfolio_summary = [], {}
+    short_candidates_df = pd.DataFrame()
+    if short_pred_map:
+        short_rows = []
+        for t, (p_win_s, p_stop_s, ev_s) in short_pred_map.items():
+            df_latest = per_ticker_df[t].iloc[-1]
+            curr_close = float(df_latest['Close'])
+            curr_atr = float(df_latest['ATR'])
+            target_price, stop_price = calculate_target_stop_levels_short(curr_close, curr_atr)
+            short_rows.append({
+                'ticker': t,
+                'price': curr_close,
+                'target_price': target_price,
+                'stop_price': stop_price,
+                'prob_win': p_win_s,
+                'prob_stop': p_stop_s,
+                'ev_score': ev_s,
+                'size_factor': 1.0,
+            })
+        short_candidates_df = pd.DataFrame(short_rows).sort_values('ev_score', ascending=False)
+        short_candidates_df.to_csv(OUTPUT_CSV_SHORT, index=False, encoding='utf-8-sig')
+
+        short_topn = short_candidates_df.head(SHORT_DAILY_TOPN)
+        short_portfolio_rows, short_portfolio_summary = build_portfolio(
+            short_topn.to_dict(orient="records"), capital=capital_split['capital_short'],
+            max_positions=SHORT_DAILY_TOPN, side="short",
+        )
+
+        print("\n" + "=" * 95)
+        print(f"【ショートポートフォリオ】(資金{capital_split['capital_short']:,}円[レジーム{capital_split['zone']} "
+              f"w={capital_split['w_short']:.2f}]・日次Top{SHORT_DAILY_TOPN})")
+        print("=" * 95)
+        if not short_portfolio_rows:
+            print("  該当銘柄なし")
+        else:
+            spf_df = pd.DataFrame(short_portfolio_rows)
+            print(spf_df[['ticker', 'price', 'ev_score', 'recommended_shares', 'estimated_cost_yen', 'estimated_max_loss_yen']].to_string(index=False))
+            print(f"\n  採用銘柄数: {short_portfolio_summary['n_positions']} (候補{short_portfolio_summary['n_candidates_evaluated']}件中)")
+        print("=" * 95)
+
+        try:
+            short_portfolio_path = os.path.join(BASE_DIR, "data", "portfolio_latest_short.json")
+            with open(short_portfolio_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "regime": capital_split,
+                    "summary": short_portfolio_summary,
+                    "positions": short_portfolio_rows,
+                }, f, ensure_ascii=False, indent=2)
+            print(f"[+] ショートポートフォリオ保存完了: {short_portfolio_path}")
+        except Exception as e:
+            print(f"[!] ショートポートフォリオ保存スキップ: {e}")
+    else:
+        print("\n[!] 空売りモデルv2の推論結果が無いため、ショートポートフォリオはスキップ")
 
     print(f"[+] 保存完了: {OUTPUT_CSV}")
 
